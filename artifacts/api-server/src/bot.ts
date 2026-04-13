@@ -106,7 +106,7 @@ function mainMenuText(name: string, balance: number): string {
   return `🎮 <b>Salom, ${name}!</b>\n\n💰 Balansingiz: <b>${fmt(balance)} UZS</b>\n\n👇 O'yinni boshlash uchun tugmani bosing:`;
 }
 
-async function mainMenu(chatId: number, name: string, balance: number, isAdmin = false) {
+async function mainMenu(chatId: number, name: string, balance: number, isAdmin = false, telegramId?: string) {
   // Remove any lingering reply keyboard first
   try {
     const rm = await bot!.sendMessage(chatId, "⌛", { reply_markup: { remove_keyboard: true } });
@@ -116,6 +116,14 @@ async function mainMenu(chatId: number, name: string, balance: number, isAdmin =
     { parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }}
   );
   userMenuMsgId.set(chatId, sent.message_id);
+  // Persist to DB so it survives redeploys
+  if (telegramId) {
+    try {
+      await db.update(playersTable)
+        .set({ lastMenuMsgId: sent.message_id })
+        .where(eq(playersTable.telegramId, telegramId));
+    } catch {}
+  }
 }
 
 async function editToMainMenu(chatId: number, msgId: number, name: string, balance: number, isAdmin = false) {
@@ -252,7 +260,10 @@ export async function startBot() {
       return;
     }
     const isAdminUser = !ADMIN_ID || user.id === ADMIN_ID;
-    const existingMsgId = userMenuMsgId.get(msg.chat.id);
+    // Try DB-persisted msg ID first (survives redeploys), then fall back to in-memory map
+    const dbMsgId = freshPlayer.lastMenuMsgId ?? null;
+    const memMsgId = userMenuMsgId.get(msg.chat.id) ?? null;
+    const existingMsgId = dbMsgId ?? memMsgId;
     if (existingMsgId) {
       // Try to edit the existing menu — if it fails (too old/deleted), send a new one
       try {
@@ -264,7 +275,7 @@ export async function startBot() {
         return;
       } catch { /* message too old or deleted — fall through to send new */ }
     }
-    await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance, isAdminUser);
+    await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance, isAdminUser, String(user.id));
   });
 
   // Admin panel helper
