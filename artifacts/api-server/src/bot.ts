@@ -851,7 +851,7 @@ export async function startBot() {
       await bot!.sendMessage(chatId,
         `💰 <b>Hisobingiz</b>\n\n💵 Balans: <b>${fmt(p?.balance ?? 0)} UZS</b>\n🎮 O'yinlar: <b>${p?.gamesPlayed ?? 0}</b>\n🏆 Yutgan: <b>${fmt(p?.totalWon ?? 0)} UZS</b>\n📈 O'ynaldi: <b>${fmt(p?.totalWagered ?? 0)} UZS</b>\n` +
         (wagerLeft > 0 ? `\n⚠️ Chiqarish uchun yana <b>${fmt(wagerLeft)} UZS</b> o'ynash kerak` : `\n✅ Chiqarishga ruxsat bor`),
-        { parse_mode: "HTML" }
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
       );
       return;
     }
@@ -861,15 +861,15 @@ export async function startBot() {
       await bot!.answerCallbackQuery(q.id);
       await bot!.sendMessage(chatId,
         `📖 <b>BARCHA O'YINLAR QOIDALARI</b>\n\n` +
-        `🍎 <b>Olma Omadi</b>\n  └ Grid ochib olmalar toping, x10 gacha\n\n` +
-        `🎲 <b>Zar (Dice)</b>\n  └ 7 dan KO'P x2.3 | TENG x5.8 | KAM x2.3\n\n` +
-        `✈️ <b>Aviator</b>\n  └ 70% kichik (1.1-2x), qulab tushishdan oldin oling!\n\n` +
-        `🎡 <b>Spin</b>\n  └ Tekin spin 24 soatda 1 ta | 30% yutish\n  └ 🍒 1K | ⭐ 2K | 💎 5K\n\n` +
-        `🃏 <b>Blackjack</b>\n  └ 21 ga yaqin qoling | BJ=x2.5 | Win=x2\n\n` +
+        `🍎 <b>Olma Omadi</b>\n  └ Har qatorda olmalarni toping, bomba topmasdan yuqoriga chiqing\n\n` +
+        `🎲 <b>Zar (Dice)</b>\n  └ 7 dan KO'P x2.3 | TENG 7 x5.8 | 7 dan KAM x2.3\n\n` +
+        `✈️ <b>Aviator</b>\n  └ Samolyot uchayotganida o'z vaqtida oling, qulagach yutqazasiz!\n\n` +
+        `🎡 <b>Spin</b>\n  └ Bepul spin 24 soatda 1 ta\n  └ 🍒 1 000 | ⭐ 2 000 | 💎 5 000 UZS\n\n` +
+        `🃏 <b>Blackjack</b>\n  └ 21 ga yaqin qoling | Blackjack=x2.5 | G'alaba=x2\n\n` +
         `🎰 <b>Slot</b>\n  └ 777=x10 | 3 bir xil=x3 | 2 bir xil=x1.5\n\n` +
-        `🔢 <b>Toq-Juft (Parity)</b>\n  └ 1-90 son | JUFT/TOQ/KICHIK/KATTA = x2 | 50% ehtimol\n\n` +
+        `🔢 <b>Toq-Juft (Parity)</b>\n  └ 1-90 son | JUFT/TOQ/KICHIK/KATTA = x2\n\n` +
         `💡 <b>Depozit:</b> +20% bonus | <b>Yechish:</b> 100% wager kerak`,
-        { parse_mode: "HTML" }
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
       );
       return;
     }
@@ -884,6 +884,7 @@ export async function startBot() {
           [{ text: "💵 50,000 UZS", callback_data: "dep_50000" }, { text: "💵 100,000 UZS", callback_data: "dep_100000" }],
           [{ text: "💵 250,000 UZS", callback_data: "dep_250000" }, { text: "💵 500,000 UZS", callback_data: "dep_500000" }],
           [{ text: "✍️ O'zim yozaman", callback_data: "dep_custom" }],
+          [{ text: "◀️ Ortga", callback_data: "main_menu" }],
         ]}}
       );
       return;
@@ -968,6 +969,7 @@ export async function startBot() {
           [{ text: `💵 75%  — ${fmt(Math.floor(p.balance*0.75))} UZS`, callback_data: `wd_${Math.floor(p.balance*0.75)}` }],
           [{ text: `💵 100% — ${fmt(p.balance)} UZS`, callback_data: `wd_${p.balance}` }],
           [{ text: "✍️ O'zim yozaman", callback_data: "wd_custom" }],
+          [{ text: "◀️ Ortga", callback_data: "main_menu" }],
         ]}}
       );
       return;
@@ -1108,7 +1110,7 @@ export async function startBot() {
         `💰 Jami topganingiz: <b>${fmt(earned)} UZS</b>\n\n` +
         `🔗 <b>Sizning havola:</b>\n<code>${refLink}</code>\n\n` +
         `📲 Havolani do'stingizga yuboring. U ro'yxatdan o'tgach, sizga <b>1 000 UZS</b> tushadi!`,
-        { parse_mode: "HTML" }
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
       );
       return;
     }
