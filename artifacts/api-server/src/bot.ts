@@ -514,6 +514,8 @@ export async function startBot() {
     const chatId = q.message.chat.id;
     const data = q.data || "";
 
+    try {
+
     // Subscription check
     if (data === "check_sub") {
       await bot!.answerCallbackQuery(q.id, { text: "✅ Rahmat! Xush kelibsiz!" });
@@ -586,7 +588,8 @@ export async function startBot() {
 
     // Admin: approve deposit
     if (data.startsWith("dep_ok_")) {
-      if (q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      logger.info({ fromId: q.from.id, adminId: ADMIN_ID }, "dep_ok clicked");
+      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       const reqId = Number(data.split("_")[2]);
       const [req] = await db.select().from(depositRequestsTable).where(eq(depositRequestsTable.id, reqId));
       if (!req || req.status !== "pending") { await bot!.answerCallbackQuery(q.id, { text: "Allaqachon qayta ishlangan" }); return; }
@@ -610,7 +613,7 @@ export async function startBot() {
 
     // Admin: reject deposit
     if (data.startsWith("dep_no_")) {
-      if (q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       const reqId = Number(data.split("_")[2]);
       const [req] = await db.select().from(depositRequestsTable).where(eq(depositRequestsTable.id, reqId));
       if (!req) return;
@@ -789,7 +792,7 @@ export async function startBot() {
 
     // Admin: broadcast menu
     if (data === "broadcast_menu") {
-      if (q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       await bot!.answerCallbackQuery(q.id);
       waitingForBroadcast.add(ADMIN_ID);
       await bot!.sendMessage(chatId,
@@ -821,7 +824,7 @@ export async function startBot() {
 
     // Admin: reply to help
     if (data.startsWith("reply_help_")) {
-      if (q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       const targetUserId = Number(data.split("_")[2]);
       adminReplyTarget.set(ADMIN_ID, targetUserId);
       await bot!.answerCallbackQuery(q.id, { text: "Javobingizni yozing" });
@@ -871,6 +874,11 @@ export async function startBot() {
     }
 
     await bot!.answerCallbackQuery(q.id);
+
+    } catch (err) {
+      logger.error({ err, data, userId: q.from.id }, "Callback query xatosi");
+      try { await bot!.answerCallbackQuery(q.id, { text: "❌ Xato yuz berdi, qayta urinib ko'ring" }); } catch {}
+    }
   });
 
   bot.on("polling_error", (e) => logger.error({ err: e }, "Bot polling error"));
