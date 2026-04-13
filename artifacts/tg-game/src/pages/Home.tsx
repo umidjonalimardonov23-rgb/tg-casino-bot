@@ -113,20 +113,22 @@ export default function Home() {
             {/* Right side: lang + rules */}
             <div className="flex items-center gap-2 relative">
               {/* Language switcher */}
+              {showLang && <div className="fixed inset-0 z-40" onClick={() => setShowLang(false)} />}
               <div className="relative">
                 <button onClick={() => setShowLang(v => !v)}
-                  className="text-xs px-2.5 py-1.5 rounded-xl font-bold flex items-center gap-1"
-                  style={{ background: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.25)", color: "#c4b5fd" }}>
+                  className="text-sm px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 active:scale-95 transition-transform"
+                  style={{ background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", color: "#c4b5fd" }}>
                   {FLAG[lang]}
                 </button>
                 {showLang && (
-                  <div className="absolute right-0 top-9 z-50 rounded-2xl overflow-hidden shadow-2xl"
-                    style={{ background: "#1a0a3a", border: "1px solid rgba(167,139,250,0.3)", minWidth: 100 }}>
+                  <div className="absolute right-0 top-10 z-50 rounded-2xl overflow-hidden shadow-2xl"
+                    style={{ background: "#1a0a3a", border: "1px solid rgba(167,139,250,0.35)", minWidth: 110, boxShadow: "0 20px 40px rgba(0,0,0,0.5)" }}>
                     {(["uz","ru","en"] as const).map(l => (
                       <button key={l} onClick={() => { setLang(l); setShowLang(false); }}
-                        className="w-full text-left px-4 py-2.5 text-xs font-bold transition-colors"
-                        style={{ color: lang === l ? "#c4b5fd" : "rgba(255,255,255,0.6)", background: lang === l ? "rgba(124,58,237,0.2)" : "transparent" }}>
-                        {FLAG[l]}
+                        className="w-full flex items-center gap-2 px-4 py-3 text-xs font-bold transition-colors active:bg-purple-900"
+                        style={{ color: lang === l ? "#c4b5fd" : "rgba(255,255,255,0.65)", background: lang === l ? "rgba(124,58,237,0.25)" : "transparent" }}>
+                        <span style={{ fontSize: 16 }}>{FLAG[l]}</span>
+                        <span>{l.toUpperCase()}</span>
                       </button>
                     ))}
                   </div>

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { PlayerProvider } from "@/lib/player-context";
 import { LangProvider } from "@/lib/lang-context";
+import { ThemeProvider } from "@/lib/theme-context";
 import Home from "@/pages/Home";
 import AppleOfFortune from "@/pages/AppleOfFortune";
 import Dice from "@/pages/Dice";
@@ -45,12 +46,14 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <LangProvider>
-        <PlayerProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
-          </WouterRouter>
-          <Toaster />
-        </PlayerProvider>
+        <ThemeProvider>
+          <PlayerProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <Router />
+            </WouterRouter>
+            <Toaster />
+          </PlayerProvider>
+        </ThemeProvider>
       </LangProvider>
     </QueryClientProvider>
   );
