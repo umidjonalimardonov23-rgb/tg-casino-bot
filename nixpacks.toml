@@ -5,7 +5,10 @@ nixPkgs = ["nodejs_20", "nodePackages.pnpm"]
 cmds = ["pnpm install --no-frozen-lockfile"]
 
 [phases.build]
-cmds = ["pnpm --filter @workspace/api-server run build"]
+cmds = [
+  "pnpm --filter @workspace/tg-game run build",
+  "pnpm --filter @workspace/api-server run build"
+]
 
 [start]
 cmd = "node artifacts/api-server/dist/index.mjs"
