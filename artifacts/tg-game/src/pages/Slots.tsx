@@ -5,76 +5,65 @@ import { useTheme } from "@/lib/theme-context";
 import { placeBet } from "@/lib/api";
 import GameHeader from "@/components/GameHeader";
 
-// Weighted pool — fruits appear 3x more often (easier to win)
-const POOL = [
-  "🍒","🍒","🍒","🍊","🍊","🍊","🍋","🍋","🍋",
-  "🍇","🍇","🔔","🔔","⭐","💎","7️⃣"
-];
-const RARE = ["7️⃣","💎","⭐"];
-const PAYOUTS: Record<string, number> = {
-  "7️⃣7️⃣7️⃣": 40, "💎💎💎": 18, "⭐⭐⭐": 10, "🔔🔔🔔": 7,
-  "🍇🍇🍇": 5,  "🍋🍋🍋": 4,  "🍊🍊🍊": 3,  "🍒🍒🍒": 2,
-};
+const FRUITS = ["🍒","🍊","🍋","🍇","🍉","🍓"];
+const ALL    = ["🍒","🍊","🍋","🍇","🍉","🍓","⭐","💎","7️⃣"];
 
-function randPool(pool: string[]) { return pool[Math.floor(Math.random() * pool.length)]; }
-
-// ~40% 3-of-a-kind chance with bias
-function spinReels(): [string, string, string] {
-  const r1 = randPool(POOL);
-  // 42% chance r2 matches r1
-  const r2 = Math.random() < 0.42 ? r1 : randPool(POOL);
-  // 42% chance r3 matches r2
-  const r3 = Math.random() < 0.42 ? r2 : randPool(POOL);
-  // Prevent jackpot (7s) from triggering too often — if all 7s, 60% re-roll
-  if (r1 === "7️⃣" && r2 === "7️⃣" && r3 === "7️⃣" && Math.random() < 0.6) {
-    return spinReels();
+// Deterministic outcome first, then generate reels to match
+function spinReels(): { reels: [string,string,string]; outcome: "jackpot"|"three"|"two"|"miss" } {
+  const r = Math.random();
+  if (r < 0.02) {
+    // 2% — Jackpot 777 = x10
+    return { reels: ["7️⃣","7️⃣","7️⃣"], outcome: "jackpot" };
+  } else if (r < 0.17) {
+    // 15% — 3 of a kind fruit = x3
+    const sym = FRUITS[Math.floor(Math.random() * FRUITS.length)];
+    return { reels: [sym, sym, sym], outcome: "three" };
+  } else if (r < 0.62) {
+    // 45% — 2 of a kind = x1.5
+    const sym = ALL[Math.floor(Math.random() * ALL.length)];
+    const others = ALL.filter(s => s !== sym);
+    const diff = others[Math.floor(Math.random() * others.length)];
+    const pos = Math.floor(Math.random() * 3);
+    const reels: [string,string,string] = [sym, sym, sym];
+    reels[pos] = diff;
+    return { reels, outcome: "two" };
+  } else {
+    // 38% — Miss
+    const s1 = ALL[Math.floor(Math.random() * ALL.length)];
+    let s2 = ALL[Math.floor(Math.random() * ALL.length)];
+    while (s2 === s1) s2 = ALL[Math.floor(Math.random() * ALL.length)];
+    let s3 = ALL[Math.floor(Math.random() * ALL.length)];
+    while (s3 === s1 || s3 === s2) s3 = ALL[Math.floor(Math.random() * ALL.length)];
+    return { reels: [s1, s2, s3], outcome: "miss" };
   }
-  return [r1, r2, r3];
-}
-
-function getResult(reels: [string,string,string]): { mult: number; label: string; type: "jackpot"|"triple"|"pair"|"miss" } {
-  const [a,b,c] = reels;
-  const key = a+b+c;
-  if (PAYOUTS[key]) {
-    const isJackpot = RARE.includes(a);
-    return { mult: PAYOUTS[key], label: `${a}${b}${c}`, type: isJackpot ? "jackpot" : "triple" };
-  }
-  if (a === b || b === c || a === c) return { mult: 1.5, label: "2x", type: "pair" };
-  return { mult: 0, label: "", type: "miss" };
 }
 
 function Reel({ symbol, spinning, idx, theme }: { symbol: string; spinning: boolean; idx: number; theme: string }) {
-  const darkStyles = [
-    { bg: "linear-gradient(145deg,#1e1b4b,#312e81)", border: "#6366f166", shadow: "#6366f122" },
-    { bg: "linear-gradient(145deg,#2d1b6e,#4c1d95)", border: "#a78bfa66", shadow: "#a78bfa22" },
-    { bg: "linear-gradient(145deg,#1e1b4b,#1e40af)", border: "#60a5fa66", shadow: "#60a5fa22" },
-  ];
-  const lightStyles = [
-    { bg: "linear-gradient(145deg,#e0e7ff,#c7d2fe)", border: "#818cf8aa", shadow: "#818cf833" },
-    { bg: "linear-gradient(145deg,#ede9fe,#ddd6fe)", border: "#a78bfaaa", shadow: "#a78bfa33" },
-    { bg: "linear-gradient(145deg,#e0e7ff,#bfdbfe)", border: "#60a5faaa", shadow: "#60a5fa33" },
-  ];
-  const blackStyles = [
-    { bg: "linear-gradient(145deg,#0a0a14,#111128)", border: "#4f46e566", shadow: "#4f46e522" },
-    { bg: "linear-gradient(145deg,#0d0a1e,#150d38)", border: "#7c3aed66", shadow: "#7c3aed22" },
-    { bg: "linear-gradient(145deg,#0a0a14,#0a1433)", border: "#2563eb66", shadow: "#2563eb22" },
-  ];
-  const s = theme === "light" ? lightStyles[idx % 3] : theme === "black" ? blackStyles[idx % 3] : darkStyles[idx % 3];
-
+  const bgs = {
+    dark:  ["linear-gradient(145deg,#1e1b4b,#312e81)","linear-gradient(145deg,#2d1b6e,#4c1d95)","linear-gradient(145deg,#1e1b4b,#1e40af)"],
+    light: ["linear-gradient(145deg,#e0e7ff,#c7d2fe)","linear-gradient(145deg,#ede9fe,#ddd6fe)","linear-gradient(145deg,#dbeafe,#bfdbfe)"],
+    black: ["linear-gradient(145deg,#0a0a14,#111128)","linear-gradient(145deg,#0d0a1e,#150d38)","linear-gradient(145deg,#0a0a14,#0a1433)"],
+  };
+  const borders = {
+    dark:  ["#6366f166","#a78bfa66","#60a5fa66"],
+    light: ["#818cf8aa","#a78bfaaa","#60a5faaa"],
+    black: ["#4f46e566","#7c3aed66","#2563eb66"],
+  };
+  const t = theme as keyof typeof bgs;
   return (
     <div className="flex items-center justify-center rounded-2xl relative overflow-hidden"
       style={{
         width: 88, height: 88,
-        background: s.bg,
-        border: `2px solid ${s.border}`,
-        boxShadow: `0 6px 0 rgba(0,0,0,0.4), 0 8px 20px ${s.shadow}, inset 0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15)`,
+        background: bgs[t][idx % 3],
+        border: `2px solid ${borders[t][idx % 3]}`,
+        boxShadow: `0 6px 0 rgba(0,0,0,0.4), 0 8px 20px rgba(0,0,0,0.3), inset 0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15)`,
         fontSize: 38,
         animation: spinning ? "slotSpin 0.1s linear infinite" : "none",
       }}>
       <div className="absolute inset-0 pointer-events-none rounded-2xl"
         style={{ background: "linear-gradient(145deg, rgba(255,255,255,0.12) 0%, transparent 50%)" }} />
       <span style={{ filter: spinning ? "blur(2px)" : "none", transition: "filter 0.2s", position: "relative", zIndex: 1 }}>
-        {spinning ? POOL[Math.floor(Math.random() * POOL.length)] : symbol}
+        {spinning ? ALL[Math.floor(Math.random() * ALL.length)] : symbol}
       </span>
     </div>
   );
@@ -87,34 +76,35 @@ export default function Slots() {
   const [betInput, setBetInput] = useState("2000");
   const [reels, setReels] = useState<[string,string,string]>(["🍒","🍒","🍒"]);
   const [spinning, setSpinning] = useState(false);
-  const [spinResult, setSpinResult] = useState<ReturnType<typeof getResult> | null>(null);
+  const [outcome, setOutcome] = useState<"jackpot"|"three"|"two"|"miss"|null>(null);
+  const [winAmt, setWinAmt] = useState(0);
   const [saving, setSaving] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const activeBet = Math.max(Number(betInput) || 2000, 2000);
   const isLight = theme === "light";
 
-  function setQuickBet(action: string) {
+  function setQuickBet(a: string) {
     const bal = player?.balance ?? 0;
     let v = activeBet;
-    if (action === "MIN") v = 2000;
-    else if (action === "MAX") v = Math.min(bal, 500000);
-    else if (action === "X2") v = Math.min(activeBet * 2, bal, 500000);
-    else if (action === "1/2") v = Math.max(2000, Math.floor(activeBet / 2));
+    if (a === "MIN") v = 2000;
+    else if (a === "MAX") v = Math.min(bal, 500000);
+    else if (a === "X2") v = Math.min(activeBet * 2, bal, 500000);
+    else if (a === "1/2") v = Math.max(2000, Math.floor(activeBet / 2));
     setBetInput(String(v));
   }
 
   const spin = useCallback(async () => {
     if (!player || player.balance < activeBet || spinning) return;
     setSpinning(true);
-    setSpinResult(null);
-    const finalReels = spinReels();
+    setOutcome(null);
+    const { reels: finalReels, outcome: finalOutcome } = spinReels();
 
     intervalRef.current = setInterval(() => {
       setReels([
-        POOL[Math.floor(Math.random() * POOL.length)],
-        POOL[Math.floor(Math.random() * POOL.length)],
-        POOL[Math.floor(Math.random() * POOL.length)],
+        ALL[Math.floor(Math.random() * ALL.length)],
+        ALL[Math.floor(Math.random() * ALL.length)],
+        ALL[Math.floor(Math.random() * ALL.length)],
       ]);
     }, 90);
 
@@ -122,37 +112,35 @@ export default function Slots() {
       clearInterval(intervalRef.current!);
       setReels(finalReels);
       setSpinning(false);
-      const res = getResult(finalReels);
-      setSpinResult(res);
-      const winAmt = res.mult > 0 ? Math.floor(activeBet * res.mult) : 0;
+      setOutcome(finalOutcome);
+
+      const mult = finalOutcome === "jackpot" ? 10 : finalOutcome === "three" ? 3 : finalOutcome === "two" ? 1.5 : 0;
+      const win = mult > 0 ? Math.floor(activeBet * mult) : 0;
+      setWinAmt(win);
+
       setSaving(true);
-      placeBet(player.telegramId, { amount: activeBet, game: "slots", won: res.mult > 0, winAmount: winAmt })
+      placeBet(player.telegramId, { amount: activeBet, game: "slots", won: mult > 0, winAmount: win })
         .then(() => refresh()).catch(() => {}).finally(() => setSaving(false));
     }, 2000);
   }, [player, activeBet, spinning]);
 
-  const resultColors: Record<string, { text: string; glow: string; label: string }> = {
-    jackpot: { text: "#fbbf24", glow: "0 0 30px #fbbf2499", label: "🏆 JACKPOT!" },
-    triple:  { text: "#4ade80", glow: "0 0 20px #4ade8055", label: "✅ 3x!" },
-    pair:    { text: "#a5b4fc", glow: "0 0 16px #a5b4fc44", label: "✌️ 2x!" },
-    miss:    { text: "#f87171", glow: "none",                label: t.noLuck },
+  const OUTCOME_STYLE = {
+    jackpot: { color: "#fbbf24", glow: "0 0 30px #fbbf2499", label: "🏆 JACKPOT! x10" },
+    three:   { color: "#4ade80", glow: "0 0 20px #4ade8055", label: `✅ 3x! x3` },
+    two:     { color: isLight ? "#6366f1" : "#a5b4fc", glow: "none", label: `✌️ 2x! x1.5` },
+    miss:    { color: "#f87171", glow: "none", label: t.noLuck },
   };
-  const rc = spinResult ? resultColors[spinResult.type] : null;
-  const winAmt = spinResult && spinResult.mult > 0 ? Math.floor(activeBet * spinResult.mult) : 0;
 
-  // Machine frame BG based on theme
   const machineBg = isLight
     ? "linear-gradient(145deg, #e0e7ff, #c7d2fe)"
     : theme === "black"
       ? "linear-gradient(145deg, #0a0a14, #111128)"
       : "linear-gradient(145deg, #2d1b6e, #1a0a4a)";
-  const machineBorder = isLight ? "#818cf8aa" : theme === "black" ? "#4f46e566" : "#7c3aed66";
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: ts.bg }}>
-      <style>{`@keyframes slotSpin { 0%{transform:translateY(-6px) scale(1.05)} 50%{transform:translateY(6px) scale(0.95)} 100%{transform:translateY(-6px) scale(1.05)} }`}</style>
-
-      <GameHeader title={`🎰 ${t.slotsTitle}`} subtitle="7️⃣7️⃣7️⃣ = x40 💎💎💎 = x18" />
+      <style>{`@keyframes slotSpin { 0%{transform:translateY(-5px) scale(1.04)} 50%{transform:translateY(5px) scale(0.96)} 100%{transform:translateY(-5px) scale(1.04)} }`}</style>
+      <GameHeader title={`🎰 ${t.slotsTitle}`} subtitle="777=x10 | 3x bir xil=x3 | 2x bir xil=x1.5" />
 
       <div className="flex-1 px-4 pb-6 flex flex-col gap-4 items-center">
 
@@ -160,41 +148,34 @@ export default function Slots() {
         <div className="w-full rounded-3xl p-5 flex flex-col items-center gap-4 relative overflow-hidden"
           style={{
             background: machineBg,
-            border: `2px solid ${machineBorder}`,
-            boxShadow: isLight
-              ? "0 8px 0 rgba(99,102,241,0.2), 0 12px 32px rgba(99,102,241,0.15), inset 0 2px 0 rgba(255,255,255,0.8)"
-              : theme === "black"
-                ? "0 8px 0 #000, 0 12px 32px rgba(79,70,229,0.2), inset 0 2px 0 rgba(255,255,255,0.05)"
-                : "0 10px 0 #0d0520, 0 14px 40px #7c3aed44, inset 0 2px 0 rgba(255,255,255,0.15)",
+            border: `2px solid ${isLight ? "#818cf8aa" : theme === "black" ? "#4f46e566" : "#7c3aed66"}`,
+            boxShadow: isLight ? "0 8px 0 rgba(99,102,241,0.2), 0 12px 32px rgba(99,102,241,0.15), inset 0 2px 0 rgba(255,255,255,0.8)"
+              : theme === "black" ? "0 8px 0 #000, 0 12px 32px rgba(79,70,229,0.15)"
+              : "0 10px 0 #0d0520, 0 14px 40px #7c3aed44, inset 0 2px 0 rgba(255,255,255,0.12)",
           }}>
           <div className="absolute inset-0 pointer-events-none rounded-3xl"
             style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%)" }} />
 
-          {/* Reels container */}
+          {/* Reels */}
           <div className="relative flex gap-3 p-3 rounded-2xl"
             style={{
-              background: isLight ? "rgba(99,102,241,0.06)" : "rgba(0,0,0,0.35)",
-              border: `1px solid ${isLight ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.06)"}`,
+              background: isLight ? "rgba(99,102,241,0.07)" : "rgba(0,0,0,0.3)",
+              border: `1px solid ${isLight ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.05)"}`,
               boxShadow: "inset 0 4px 12px rgba(0,0,0,0.2)",
             }}>
             {reels.map((s, i) => <Reel key={i} symbol={s} spinning={spinning} idx={i} theme={theme} />)}
           </div>
 
-          {/* Divider */}
           <div className="w-3/4 h-0.5 rounded-full"
             style={{ background: `linear-gradient(90deg, transparent, ${isLight ? "#818cf8" : "#7c3aed"}, transparent)` }} />
 
-          {/* Result display */}
-          {spinResult ? (
+          {/* Result */}
+          {outcome ? (
             <div className="text-center">
-              <p className="font-black text-2xl" style={{ color: rc!.text, textShadow: rc!.glow }}>
-                {rc!.label} {spinResult.label}
+              <p className="font-black text-2xl" style={{ color: OUTCOME_STYLE[outcome].color, textShadow: OUTCOME_STYLE[outcome].glow }}>
+                {OUTCOME_STYLE[outcome].label}
               </p>
-              {winAmt > 0 && (
-                <p className="font-black text-base mt-1" style={{ color: isLight ? "#059669" : "#4ade80" }}>
-                  +{winAmt.toLocaleString()} UZS
-                </p>
-              )}
+              {winAmt > 0 && <p className="font-bold text-sm mt-1" style={{ color: isLight ? "#059669" : "#4ade80" }}>+{winAmt.toLocaleString()} UZS</p>}
             </div>
           ) : spinning ? (
             <p className="font-bold animate-pulse" style={{ color: isLight ? "#4338ca" : "#c4b5fd" }}>{t.spinning}</p>
@@ -203,38 +184,38 @@ export default function Slots() {
           )}
         </div>
 
-        {/* Payout table — compact */}
+        {/* Payout table — simple 3 rows */}
         <div className="w-full rounded-2xl p-4"
-          style={{ background: ts.card, border: `1px solid ${ts.cardBorder}`, boxShadow: isLight ? "0 4px 16px rgba(99,102,241,0.08)" : "none" }}>
+          style={{ background: ts.card, border: `1px solid ${ts.cardBorder}` }}>
           <p className="text-xs font-black mb-3 text-center tracking-widest" style={{ color: ts.textSub }}>{t.payoutTable}</p>
-          <div className="grid grid-cols-2 gap-1.5">
-            {Object.entries(PAYOUTS).map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between px-3 py-1.5 rounded-xl"
+          <div className="flex flex-col gap-1.5">
+            {[
+              { label: "7️⃣7️⃣7️⃣", mult: "x10", color: "#fbbf24", pct: "2%" },
+              { label: `3x ${t.threeMatch}`, mult: "x3", color: "#4ade80", pct: "15%" },
+              { label: `2x ${t.twoSame}`, mult: "x1.5", color: isLight ? "#6366f1" : "#a5b4fc", pct: "45%" },
+              { label: "Boshqa", mult: "❌", color: "#f87171", pct: "38%" },
+            ].map(row => (
+              <div key={row.label} className="flex items-center justify-between px-3 py-2 rounded-xl"
                 style={{ background: ts.input, border: `1px solid ${ts.inputBorder}` }}>
-                <span style={{ fontSize: 12 }}>{k}</span>
-                <span className="font-black text-xs"
-                  style={{ color: v >= 18 ? "#fbbf24" : v >= 10 ? "#4ade80" : isLight ? "#6366f1" : "#a5b4fc" }}>
-                  x{v}
-                </span>
+                <span className="text-sm" style={{ color: ts.text }}>{row.label}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs" style={{ color: ts.textSub }}>{row.pct}</span>
+                  <span className="font-black text-sm" style={{ color: row.color }}>{row.mult}</span>
+                </div>
               </div>
             ))}
-            <div className="flex items-center justify-between px-3 py-1.5 rounded-xl"
-              style={{ background: ts.input, border: `1px solid ${ts.inputBorder}` }}>
-              <span className="text-xs" style={{ color: ts.textSub }}>2x {t.twoSame}</span>
-              <span className="font-black text-xs" style={{ color: isLight ? "#6366f1" : "#a5b4fc" }}>x1.5</span>
-            </div>
           </div>
         </div>
 
         {/* Bet */}
         <div className="w-full rounded-2xl p-4"
-          style={{ background: ts.card, border: `1px solid ${ts.cardBorder}`, boxShadow: isLight ? "0 4px 16px rgba(99,102,241,0.08)" : "none" }}>
+          style={{ background: ts.card, border: `1px solid ${ts.cardBorder}` }}>
           <p className="text-xs font-bold mb-3 tracking-widest" style={{ color: ts.textSub }}>💰 {t.betAmount}</p>
           <div className="grid grid-cols-4 gap-2 mb-3">
             {["MIN","1/2","X2","MAX"].map(a => (
               <button key={a} onClick={() => setQuickBet(a)}
                 className="py-2 rounded-xl text-xs font-bold active:scale-95 transition-transform"
-                style={{ background: ts.btnSecondary, color: ts.btnSecondaryText, border: `1px solid ${ts.cardBorder}`, boxShadow: "0 2px 0 rgba(0,0,0,0.15)" }}>
+                style={{ background: ts.btnSecondary, color: ts.btnSecondaryText, border: `1px solid ${ts.cardBorder}`, boxShadow: "0 2px 0 rgba(0,0,0,0.1)" }}>
                 {a}
               </button>
             ))}
@@ -245,14 +226,11 @@ export default function Slots() {
             placeholder="2000" min={2000} />
         </div>
 
-        {/* Spin button */}
         <button onClick={spin}
           disabled={!player || player.balance < activeBet || spinning}
           className="w-full py-4 rounded-2xl font-black text-xl active:scale-95 transition-all disabled:opacity-40"
           style={{
-            background: spinning
-              ? (isLight ? "rgba(99,102,241,0.3)" : "rgba(124,58,237,0.35)")
-              : (isLight ? "linear-gradient(145deg, #4f46e5, #6d28d9)" : "linear-gradient(145deg, #7c3aed, #4f46e5)"),
+            background: spinning ? "rgba(124,58,237,0.3)" : (isLight ? "linear-gradient(145deg,#4f46e5,#6d28d9)" : "linear-gradient(145deg,#7c3aed,#4f46e5)"),
             boxShadow: spinning ? "none" : (isLight ? "0 6px 0 #312e81, 0 8px 24px rgba(79,70,229,0.4)" : "0 7px 0 #3b1278, 0 10px 28px #7c3aed55"),
             color: spinning ? (isLight ? "#6d28d9" : "#c4b5fd") : "white",
           }}>

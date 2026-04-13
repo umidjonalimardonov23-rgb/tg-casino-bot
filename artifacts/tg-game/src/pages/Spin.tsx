@@ -1,15 +1,36 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation } from "wouter";
-import { ArrowLeft } from "lucide-react";
 import { usePlayer } from "@/lib/player-context";
+import { useTheme } from "@/lib/theme-context";
+import GameHeader from "@/components/GameHeader";
 
 const BASE = "/api";
-const SYMBOLS = ["🍎","🍋","🍇","🍒","💎","⭐","🎰","🍊","🍉","💰","🔥","🌟","🎯","💣","🍀"];
-const PRIZES_FREE = [0,0,0,0,0,500,500,1000,2000,5000];
-const PRIZES_PAID = [0,0,0,500,500,1000,1000,2000,3000,5000];
 const BET = 2000;
 
-function fmt(n: number) { return n.toLocaleString("uz-UZ"); }
+// 10 segments: 7 miss, 3 win → 30% win, 70% miss
+// Each segment = 36°. Pointer at top (0° = index 0).
+// Segments (index 0-9):
+// 0: Miss, 1: Miss, 2: Win 1000, 3: Miss, 4: Miss, 5: Win 2000, 6: Miss, 7: Miss, 8: Win 5000, 9: Miss
+
+const SEGMENTS = [
+  { label: "💣",          prize: 0,    color: "#7f1d1d", light: "#dc2626" },
+  { label: "💣",          prize: 0,    color: "#7f1d1d", light: "#dc2626" },
+  { label: "🍒 1 000",   prize: 1000, color: "#78350f", light: "#d97706" },
+  { label: "💣",          prize: 0,    color: "#7f1d1d", light: "#dc2626" },
+  { label: "💣",          prize: 0,    color: "#7f1d1d", light: "#dc2626" },
+  { label: "⭐ 2 000",   prize: 2000, color: "#064e3b", light: "#059669" },
+  { label: "💣",          prize: 0,    color: "#7f1d1d", light: "#dc2626" },
+  { label: "💣",          prize: 0,    color: "#7f1d1d", light: "#dc2626" },
+  { label: "💎 5 000",   prize: 5000, color: "#312e81", light: "#4f46e5" },
+  { label: "💣",          prize: 0,    color: "#7f1d1d", light: "#dc2626" },
+];
+
+const WIN_SEGMENTS  = [2, 5, 8]; // indices of winning segments
+const LOSE_SEGMENTS = [0, 1, 3, 4, 6, 7, 9];
+
+function getTargetAngle(segIdx: number): number {
+  // Segment center angle from top (clockwise)
+  return segIdx * 36 + 18;
+}
 
 function timeLeft(nextSpinAt: string): string {
   const diff = new Date(nextSpinAt).getTime() - Date.now();
@@ -21,33 +42,30 @@ function timeLeft(nextSpinAt: string): string {
 }
 
 export default function Spin() {
-  const [, nav] = useLocation();
   const { player, refresh } = usePlayer();
+  const { theme, ts } = useTheme();
 
   const [spinning, setSpinning] = useState(false);
-  const [symbol, setSymbol] = useState("🎰");
-  const [result, setResult] = useState<{ prize: number; symbol: string } | null>(null);
+  const [rotation, setRotation] = useState(0);
+  const [result, setResult] = useState<{ prize: number; segIdx: number } | null>(null);
   const [canFree, setCanFree] = useState(false);
   const [nextSpinAt, setNextSpinAt] = useState<string | null>(null);
   const [countdown, setCountdown] = useState("");
   const [loading, setLoading] = useState(true);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const rotRef = useRef(0);
 
-  // Load spin status
+  const isLight = theme === "light";
+  const canPaid = (player?.balance ?? 0) >= BET;
+
   useEffect(() => {
     if (!player) return;
     fetch(`${BASE}/spin/status/${player.telegramId}`)
       .then(r => r.json())
-      .then(d => {
-        setCanFree(d.canSpin);
-        setNextSpinAt(d.nextSpinAt);
-        setLoading(false);
-      })
+      .then(d => { setCanFree(d.canSpin); setNextSpinAt(d.nextSpinAt); setLoading(false); })
       .catch(() => setLoading(false));
   }, [player]);
 
-  // Countdown timer
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (!nextSpinAt) return;
@@ -63,224 +81,220 @@ export default function Spin() {
 
   const doSpin = async (free: boolean) => {
     if (!player || spinning) return;
-    if (!free && (player.balance < BET)) return;
-
+    if (!free && player.balance < BET) return;
     setSpinning(true);
     setResult(null);
 
-    // Fast reel animation
-    let speed = 60;
-    let elapsed = 0;
-    const DURATION = 5000;
-    const spinLoop = () => {
-      setSymbol(SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]);
-      elapsed += speed;
-      if (elapsed < DURATION * 0.6) speed = 60;
-      else if (elapsed < DURATION * 0.8) speed = 120;
-      else if (elapsed < DURATION * 0.92) speed = 220;
-      else speed = 380;
+    // Pre-determine result from API
+    let prizeFromApi = 0;
+    let nextSpinAtFromApi: string | null = null;
+    try {
+      const resp = await fetch(`${BASE}/spin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegramId: player.telegramId, paid: !free, amount: free ? 0 : BET }),
+      });
+      const d = await resp.json();
+      prizeFromApi = d.prize ?? 0;
+      nextSpinAtFromApi = d.nextSpinAt ?? null;
+    } catch {}
 
-      if (elapsed < DURATION) {
-        intervalRef.current = setTimeout(spinLoop, speed);
-      } else {
-        // Call API for result
-        fetch(`${BASE}/spin`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ telegramId: player.telegramId, paid: !free, amount: free ? 0 : BET }),
-        })
-          .then(r => r.json())
-          .then(d => {
-            if (d.error && d.error !== "cooldown") throw new Error(d.error);
-            const prize = d.prize ?? 0;
-            const sym = d.symbol ?? SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
-            setSymbol(sym);
-            setResult({ prize, symbol: sym });
-            setCanFree(false);
-            setNextSpinAt(d.nextSpinAt ?? null);
-            refresh();
-            setSpinning(false);
-          })
-          .catch(() => setSpinning(false));
+    // Pick segment based on result
+    const isWin = prizeFromApi > 0;
+    let segIdx: number;
+    if (isWin) {
+      // Find closest win segment by prize
+      if (prizeFromApi >= 5000) segIdx = 8;
+      else if (prizeFromApi >= 2000) segIdx = 5;
+      else segIdx = 2;
+    } else {
+      segIdx = LOSE_SEGMENTS[Math.floor(Math.random() * LOSE_SEGMENTS.length)];
+    }
+
+    // Calculate rotation: spin many full turns then land on segment
+    const targetAngle = getTargetAngle(segIdx);
+    const fullTurns = 5 * 360; // 5 full rotations
+    // To land segment at top (0°): rotate by (360 - targetAngle) + full turns
+    const landAngle = (360 - targetAngle + 360) % 360;
+    const totalRotation = rotRef.current + fullTurns + landAngle;
+    rotRef.current = totalRotation;
+    setRotation(totalRotation);
+
+    // After animation ends (3.5s)
+    setTimeout(() => {
+      setResult({ prize: prizeFromApi, segIdx });
+      setSpinning(false);
+      if (free) {
+        setCanFree(false);
+        setNextSpinAt(nextSpinAtFromApi);
       }
-    };
-    intervalRef.current = setTimeout(spinLoop, speed);
+      refresh();
+    }, 3500);
   };
 
-  useEffect(() => () => { if (intervalRef.current) clearTimeout(intervalRef.current); }, []);
+  // Wheel SVG (10 segments, conic gradient)
+  const wheelSize = 260;
+  const cx = wheelSize / 2;
+  const cy = wheelSize / 2;
+  const r = 115;
 
-  const canPaid = (player?.balance ?? 0) >= BET;
+  // Build SVG path segments
+  function polarToXY(angleDeg: number, radius: number) {
+    const rad = ((angleDeg - 90) * Math.PI) / 180;
+    return { x: cx + radius * Math.cos(rad), y: cy + radius * Math.sin(rad) };
+  }
+
+  function segmentPath(startAngle: number, endAngle: number): string {
+    const s = polarToXY(startAngle, r);
+    const e = polarToXY(endAngle, r);
+    const largeArc = endAngle - startAngle > 180 ? 1 : 0;
+    return `M ${cx} ${cy} L ${s.x} ${s.y} A ${r} ${r} 0 ${largeArc} 1 ${e.x} ${e.y} Z`;
+  }
+
+  const wheelBg = isLight ? "#e0e7ff" : theme === "black" ? "#0a0a14" : "#1e1b4b";
 
   return (
-    <div className="h-screen flex flex-col relative overflow-hidden"
-      style={{ background: "linear-gradient(160deg, #1a0040 0%, #2d0060 50%, #1a0040 100%)" }}>
+    <div className="min-h-screen flex flex-col" style={{ background: ts.bg }}>
+      <GameHeader title="🎡 KUNLIK SPIN" subtitle="30% yutish • 70% omadsizlik" />
 
-      {/* Glow orbs */}
-      <div className="fixed pointer-events-none" style={{ top: -60, left: -60, width: 250, height: 250, borderRadius: "50%", background: "radial-gradient(circle, #7c3aed44 0%, transparent 70%)", filter: "blur(50px)" }} />
-      <div className="fixed pointer-events-none" style={{ bottom: 60, right: -60, width: 220, height: 220, borderRadius: "50%", background: "radial-gradient(circle, #a855f733 0%, transparent 70%)", filter: "blur(40px)" }} />
+      <div className="flex-1 flex flex-col items-center px-4 pb-6 gap-4">
 
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-5 pb-3 shrink-0 relative z-10">
-        <button onClick={() => nav("/")} className="w-9 h-9 flex items-center justify-center rounded-xl"
-          style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}>
-          <ArrowLeft className="w-4 h-4 text-white" />
-        </button>
-        <h1 className="font-black text-sm tracking-wider text-white">🎰 KUNLIK SPIN</h1>
-        <div className="px-3 py-1.5 rounded-xl" style={{ background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.35)" }}>
-          <span className="text-sm font-black" style={{ color: "#c4b5fd" }}>{fmt(player?.balance ?? 0)} UZS</span>
+        {/* Wheel */}
+        <div className="flex flex-col items-center relative">
+          {/* Pointer (triangle at top) */}
+          <div className="z-20 mb-1" style={{
+            width: 0, height: 0,
+            borderLeft: "14px solid transparent",
+            borderRight: "14px solid transparent",
+            borderTop: "22px solid #fbbf24",
+            filter: "drop-shadow(0 4px 8px rgba(251,191,36,0.6))",
+          }} />
+
+          {/* Wheel container */}
+          <div style={{
+            width: wheelSize, height: wheelSize,
+            transition: spinning ? "transform 3.5s cubic-bezier(0.17, 0.67, 0.12, 1.0)" : "none",
+            transform: `rotate(${rotation}deg)`,
+          }}>
+            <svg width={wheelSize} height={wheelSize} viewBox={`0 0 ${wheelSize} ${wheelSize}`}>
+              {/* Background */}
+              <circle cx={cx} cy={cy} r={r + 8} fill={wheelBg} />
+              {/* Segments */}
+              {SEGMENTS.map((seg, i) => (
+                <g key={i}>
+                  <path d={segmentPath(i * 36, (i + 1) * 36)}
+                    fill={isLight ? seg.light : seg.color}
+                    stroke={isLight ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.15)"}
+                    strokeWidth="1.5" />
+                  {/* Segment label */}
+                  {(() => {
+                    const mid = polarToXY(i * 36 + 18, r * 0.65);
+                    return (
+                      <text x={mid.x} y={mid.y} textAnchor="middle" dominantBaseline="middle"
+                        style={{ fontSize: 10, fontWeight: 900, fill: "white", textShadow: "none", userSelect: "none" }}>
+                        {seg.prize > 0 ? `+${seg.prize >= 1000 ? `${seg.prize/1000}K` : seg.prize}` : "✗"}
+                      </text>
+                    );
+                  })()}
+                </g>
+              ))}
+              {/* Center circle */}
+              <circle cx={cx} cy={cy} r={22}
+                fill={isLight ? "#4f46e5" : "#7c3aed"}
+                stroke={isLight ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.3)"}
+                strokeWidth="3" />
+              <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+                style={{ fontSize: 18, fill: "white", fontWeight: 900 }}>🎡</text>
+              {/* Outer ring */}
+              <circle cx={cx} cy={cy} r={r + 6}
+                fill="none"
+                stroke={isLight ? "#6366f1" : "#7c3aed"}
+                strokeWidth="4" opacity="0.5" />
+              {/* Dots at segment borders */}
+              {SEGMENTS.map((_, i) => {
+                const p = polarToXY(i * 36, r + 6);
+                return <circle key={i} cx={p.x} cy={p.y} r={4} fill={isLight ? "#fbbf24" : "#fbbf24"} />;
+              })}
+            </svg>
+          </div>
         </div>
-      </div>
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col items-center justify-between px-5 pb-6 relative z-10">
+        {/* Result */}
+        {result && !spinning && (
+          <div className="text-center py-3 px-6 rounded-2xl"
+            style={{
+              background: result.prize > 0 ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.08)",
+              border: `1px solid ${result.prize > 0 ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.2)"}`,
+            }}>
+            {result.prize > 0 ? (
+              <>
+                <p className="font-black text-2xl" style={{ color: "#4ade80" }}>+{result.prize.toLocaleString()} UZS 🎉</p>
+                <p className="text-sm mt-1" style={{ color: ts.textSub }}>Balansingizga qo'shildi!</p>
+              </>
+            ) : (
+              <>
+                <p className="font-black text-xl" style={{ color: "#f87171" }}>Omad kelmadi 😔</p>
+                <p className="text-sm mt-1" style={{ color: ts.textSub }}>Keyingi gal albatta!</p>
+              </>
+            )}
+          </div>
+        )}
 
-        {/* Prize table */}
-        <div className="w-full rounded-2xl px-4 py-3 mb-2"
-          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(167,139,250,0.2)" }}>
-          <p className="text-center text-xs font-bold mb-2" style={{ color: "rgba(167,139,250,0.7)" }}>📊 EHTIMOLLAR</p>
-          <div className="grid grid-cols-5 gap-1 text-center">
+        {spinning && (
+          <p className="font-black text-lg animate-pulse" style={{ color: isLight ? "#4338ca" : "#c4b5fd" }}>Aylanmoqda...</p>
+        )}
+
+        {!spinning && !result && !loading && countdown && (
+          <div className="text-center">
+            <p className="text-sm" style={{ color: ts.textSub }}>Tekin spin:</p>
+            <p className="font-black text-xl" style={{ color: "#fbbf24" }}>⏳ {countdown}</p>
+          </div>
+        )}
+
+        {/* Prize breakdown */}
+        <div className="w-full rounded-2xl p-3"
+          style={{ background: ts.card, border: `1px solid ${ts.cardBorder}` }}>
+          <p className="text-xs font-black mb-2 text-center tracking-widest" style={{ color: ts.textSub }}>📊 EHTIMOLLAR</p>
+          <div className="grid grid-cols-4 gap-2 text-center">
             {[
-              { sym: "💣", label: "Yutqazish", pct: "50%", color: "#f87171" },
-              { sym: "🍒", label: "500 UZS", pct: "20%", color: "#fbbf24" },
-              { sym: "🌟", label: "1 000", pct: "10%", color: "#34d399" },
-              { sym: "⭐", label: "2 000", pct: "10%", color: "#60a5fa" },
-              { sym: "💎", label: "5 000", pct: "10%", color: "#c4b5fd" },
+              { label: "💣 Miss",      pct: "70%", color: "#f87171" },
+              { label: "🍒 1K",        pct: "10%", color: "#d97706" },
+              { label: "⭐ 2K",        pct: "10%", color: "#34d399" },
+              { label: "💎 5K",        pct: "10%", color: "#a78bfa" },
             ].map(p => (
-              <div key={p.label} className="flex flex-col items-center gap-0.5">
-                <span style={{ fontSize: 18 }}>{p.sym}</span>
-                <span className="font-black text-xs" style={{ color: p.color }}>{p.pct}</span>
-                <span style={{ fontSize: 9, color: "rgba(255,255,255,0.35)" }}>{p.label}</span>
+              <div key={p.label}>
+                <p className="text-xs font-black" style={{ color: p.color }}>{p.pct}</p>
+                <p style={{ fontSize: 10, color: ts.textSub }}>{p.label}</p>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Slot machine */}
-        <div className="flex flex-col items-center">
-          {/* Machine frame */}
-          <div className="relative" style={{ perspective: "600px" }}>
-            {/* Top decoration */}
-            <div className="w-52 h-6 rounded-t-2xl flex items-center justify-center mb-0"
-              style={{ background: "linear-gradient(90deg, #7c3aed, #a855f7, #7c3aed)", boxShadow: "0 -4px 20px #7c3aed88" }}>
-              <div className="flex gap-2">
-                {["#f87171","#fbbf24","#4ade80"].map(c => (
-                  <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c, boxShadow: `0 0 6px ${c}` }} />
-                ))}
-              </div>
-            </div>
-
-            {/* Reel window */}
-            <div className="w-52 h-44 flex items-center justify-center relative overflow-hidden"
-              style={{
-                background: "linear-gradient(180deg, #0d0020 0%, #1a0040 50%, #0d0020 100%)",
-                border: "3px solid #7c3aed",
-                boxShadow: spinning
-                  ? "0 0 40px #a855f7, inset 0 0 30px rgba(124,58,237,0.3)"
-                  : "0 0 20px #7c3aed88, inset 0 0 20px rgba(124,58,237,0.15)",
-                transition: "box-shadow 0.3s",
-              }}>
-
-              {/* Top/bottom gradient overlays for depth */}
-              <div className="absolute inset-x-0 top-0 h-14 pointer-events-none z-10"
-                style={{ background: "linear-gradient(180deg, #0d0020 0%, transparent 100%)" }} />
-              <div className="absolute inset-x-0 bottom-0 h-14 pointer-events-none z-10"
-                style={{ background: "linear-gradient(0deg, #0d0020 0%, transparent 100%)" }} />
-
-              {/* Center highlight line */}
-              <div className="absolute inset-x-0 z-20 pointer-events-none" style={{ top: "calc(50% - 36px)", height: 72 }}>
-                <div className="w-full h-full" style={{ border: "1.5px solid rgba(167,139,250,0.5)", boxShadow: "0 0 12px rgba(167,139,250,0.3)" }} />
-              </div>
-
-              {/* Symbol */}
-              <div className="relative z-5 flex items-center justify-center"
-                style={{
-                  fontSize: spinning ? 64 : 80,
-                  filter: spinning ? "blur(2px) brightness(1.3)" : "none",
-                  transition: spinning ? "none" : "font-size 0.3s, filter 0.4s",
-                  textShadow: "0 0 20px rgba(255,255,255,0.3)",
-                  transform: spinning ? "scaleY(0.9)" : "scaleY(1)",
-                }}>
-                {symbol}
-              </div>
-            </div>
-
-            {/* Lever side */}
-            <div className="absolute -right-5 top-4 flex flex-col items-center">
-              <div className="w-3 h-20 rounded-full" style={{ background: "linear-gradient(180deg, #fbbf24, #d97706)", boxShadow: "0 0 8px #f59e0b" }} />
-              <div className="w-6 h-6 rounded-full mt-0.5" style={{ background: "linear-gradient(135deg, #f87171, #dc2626)", boxShadow: "0 0 10px #ef4444" }} />
-            </div>
-
-            {/* Bottom frame */}
-            <div className="w-52 h-5 rounded-b-2xl"
-              style={{ background: "linear-gradient(90deg, #7c3aed, #a855f7, #7c3aed)", boxShadow: "0 4px 20px #7c3aed88" }} />
-          </div>
-
-          {/* Result display */}
-          <div className="mt-4 h-16 flex items-center justify-center">
-            {result && !spinning && (
-              <div className="text-center slide-up">
-                {result.prize > 0 ? (
-                  <>
-                    <p className="font-black text-2xl" style={{ color: "#4ade80", textShadow: "0 0 20px #4ade8088" }}>
-                      +{fmt(result.prize)} UZS 🎉
-                    </p>
-                    <p className="text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>Balansingizga qo'shildi!</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="font-black text-xl" style={{ color: "#f87171" }}>Omad kelmadi 😔</p>
-                    <p className="text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>Keyingi gal albatta!</p>
-                  </>
-                )}
-              </div>
-            )}
-            {spinning && (
-              <p className="font-black text-lg animate-pulse" style={{ color: "#c4b5fd" }}>Aylanmoqda...</p>
-            )}
-            {!spinning && !result && !loading && countdown && (
-              <div className="text-center">
-                <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Tekin spin:</p>
-                <p className="font-black text-xl" style={{ color: "#fbbf24" }}>⏳ {countdown}</p>
-              </div>
-            )}
-          </div>
-        </div>
-
         {/* Buttons */}
-        <div className="w-full flex flex-col gap-3 mt-2">
-          {/* Free spin button */}
-          <button
-            onClick={() => doSpin(true)}
+        <div className="w-full flex flex-col gap-3">
+          <button onClick={() => doSpin(true)}
             disabled={!canFree || spinning || loading}
             className="w-full py-4 rounded-2xl font-black text-base active:scale-95 transition-all disabled:opacity-40"
             style={{
-              background: canFree && !spinning
-                ? "linear-gradient(135deg, #7c3aed, #a855f7)"
-                : "rgba(124,58,237,0.2)",
-              boxShadow: canFree && !spinning ? "0 8px 28px rgba(124,58,237,0.5)" : "none",
-              border: "1px solid rgba(167,139,250,0.4)",
-              color: "white",
+              background: canFree && !spinning ? "linear-gradient(145deg, #7c3aed, #a855f7)" : (isLight ? "rgba(124,58,237,0.1)" : "rgba(124,58,237,0.15)"),
+              boxShadow: canFree && !spinning ? "0 6px 0 #4c1d95, 0 8px 24px rgba(124,58,237,0.5)" : "none",
+              color: canFree && !spinning ? "white" : ts.textSub,
             }}>
             {loading ? "Yuklanmoqda..." : canFree ? "🎁 TEKIN AYLANTIRISH" : `⏳ ${countdown || "Kutilmoqda..."}`}
           </button>
 
-          {/* Paid spin button */}
-          <button
-            onClick={() => doSpin(false)}
+          <button onClick={() => doSpin(false)}
             disabled={!canPaid || spinning}
-            className="w-full py-3.5 rounded-2xl font-black text-base active:scale-95 transition-all disabled:opacity-40"
+            className="w-full py-4 rounded-2xl font-black text-base active:scale-95 transition-all disabled:opacity-40"
             style={{
-              background: canPaid && !spinning
-                ? "linear-gradient(135deg, #1e1b4b, #3730a3)"
-                : "rgba(55,48,163,0.2)",
-              boxShadow: canPaid && !spinning ? "0 6px 20px rgba(99,102,241,0.4)" : "none",
-              border: "1px solid rgba(129,140,248,0.4)",
-              color: "white",
+              background: canPaid && !spinning ? "linear-gradient(145deg, #1e40af, #2563eb)" : (isLight ? "rgba(37,99,235,0.1)" : "rgba(37,99,235,0.15)"),
+              boxShadow: canPaid && !spinning ? "0 5px 0 #1e3a8a, 0 6px 16px rgba(37,99,235,0.4)" : "none",
+              color: canPaid && !spinning ? "white" : ts.textSub,
             }}>
-            🎰 2 000 UZS GA AYLANTIRISH
+            🎰 {BET.toLocaleString()} UZS GA AYLANTIRISH
           </button>
 
-          <p className="text-center text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
+          <p className="text-center text-xs" style={{ color: ts.textSub }}>
             Tekin spin har 24 soatda bir marta • To'lovli spin cheksiz
           </p>
         </div>
