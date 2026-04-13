@@ -11,7 +11,12 @@ const CARD_NUMBER = process.env.CARD_NUMBER || "";
 const CARD_HOLDER = process.env.CARD_HOLDER || "";
 const DOMAINS = process.env.REPLIT_DOMAINS || "";
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || "";
-const APP_URL = RENDER_URL || (DOMAINS ? `https://${DOMAINS.split(",")[0]}` : "");
+const RAILWAY_DOMAIN = process.env.RAILWAY_PUBLIC_DOMAIN || "";
+const APP_URL =
+  process.env.APP_URL ||
+  RENDER_URL ||
+  (RAILWAY_DOMAIN ? `https://${RAILWAY_DOMAIN}` : "") ||
+  (DOMAINS ? `https://${DOMAINS.split(",")[0]}` : "");
 const BONUS_PERCENT = 20;
 
 let bot: TelegramBot | null = null;
