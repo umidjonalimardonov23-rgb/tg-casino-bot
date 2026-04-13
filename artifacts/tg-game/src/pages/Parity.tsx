@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { usePlayer } from "@/lib/player-context";
 import { useLang } from "@/lib/lang-context";
 import { useTheme } from "@/lib/theme-context";
@@ -6,7 +6,10 @@ import { placeBet } from "@/lib/api";
 import GameHeader from "@/components/GameHeader";
 
 type BetType = "even" | "odd" | "small" | "big";
-type GameState = "idle" | "rolling" | "result";
+// Phase 1: idle – enter bet & press play
+// Phase 2: predict – number spinning, user must pick JUFT/TOQ/KICHIK/KATTA
+// Phase 3: reveal – animation slows, shows result
+type Phase = "idle" | "predict" | "reveal";
 
 export default function Parity() {
   const { player, refresh } = usePlayer();
@@ -14,22 +17,19 @@ export default function Parity() {
   const { theme, ts } = useTheme();
   const [betInput, setBetInput] = useState("2000");
   const [betType, setBetType] = useState<BetType | null>(null);
-  const [gameState, setGameState] = useState<GameState>("idle");
-  const [drawnNum, setDrawnNum] = useState<number | null>(null);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [finalNum, setFinalNum] = useState<number | null>(null);
   const [displayNum, setDisplayNum] = useState<number | null>(null);
   const [won, setWon] = useState(false);
   const [prize, setPrize] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [countdown, setCountdown] = useState(5);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pickedRef = useRef<BetType | null>(null);
 
   const activeBet = Math.max(Number(betInput) || 2000, 2000);
   const isLight = theme === "light";
-
-  // Number drawn from 1-90 for true 50/50:
-  // Even numbers in 1-90: 2,4...90 = 45 numbers (50%)
-  // Odd: 1,3...89 = 45 numbers (50%)
-  // Small: 1-45 = 45 numbers (50%)
-  // Big: 46-90 = 45 numbers (50%)
 
   const BET_OPTIONS: { type: BetType; label: string; sub: string; emoji: string; color: string; bg: string; shadow: string }[] = [
     { type: "even",  label: t.even,  sub: "2,4,6...90", emoji: "2️⃣",
@@ -52,55 +52,111 @@ export default function Parity() {
     setBetInput(String(v));
   }
 
-  const play = useCallback(async () => {
-    if (!player || !betType || player.balance < activeBet || gameState === "rolling") return;
-    setGameState("rolling");
-    setDrawnNum(null); setDisplayNum(null); setWon(false); setPrize(0);
+  function clearTimers() {
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    if (countRef.current) { clearInterval(countRef.current); countRef.current = null; }
+  }
 
-    const final = Math.floor(Math.random() * 90) + 1; // 1-90
+  // Phase 1 → 2: Player presses PLAY, bet locked, spinning starts
+  const startGame = useCallback(() => {
+    if (!player || player.balance < activeBet || phase !== "idle") return;
 
-    let ticks = 0;
+    const final = Math.floor(Math.random() * 90) + 1;
+    setFinalNum(final);
+    setDisplayNum(null);
+    setBetType(null);
+    pickedRef.current = null;
+    setPhase("predict");
+    setCountdown(5);
+
+    // Spinning animation
     intervalRef.current = setInterval(() => {
       setDisplayNum(Math.floor(Math.random() * 90) + 1);
+    }, 80);
+
+    // 5-second countdown for prediction
+    let secs = 5;
+    countRef.current = setInterval(() => {
+      secs--;
+      setCountdown(secs);
+      if (secs <= 0) {
+        clearTimers();
+        // If user didn't pick — random pick (auto-lose style, but still fair)
+        const picked = pickedRef.current ?? (["even","odd","small","big"] as BetType[])[Math.floor(Math.random() * 4)];
+        doReveal(final, picked);
+      }
+    }, 1000);
+  }, [player, activeBet, phase]);
+
+  // User picks prediction while spinning
+  function pickBet(type: BetType) {
+    if (phase !== "predict") return;
+    setBetType(type);
+    pickedRef.current = type;
+    clearTimers();
+    doReveal(finalNum!, type);
+  }
+
+  // Phase 2 → 3: Stop spinning, show result
+  function doReveal(final: number, picked: BetType) {
+    // Slow-down animation: 10 more ticks at 120ms then stop
+    let ticks = 0;
+    intervalRef.current = setInterval(() => {
       ticks++;
-      if (ticks >= 22) {
+      if (ticks < 8) {
+        setDisplayNum(Math.floor(Math.random() * 90) + 1);
+      } else {
         clearInterval(intervalRef.current!);
+        intervalRef.current = null;
         setDisplayNum(final);
-        setDrawnNum(final);
 
         const isWin =
-          (betType === "even"  && final % 2 === 0) ||
-          (betType === "odd"   && final % 2 !== 0) ||
-          (betType === "small" && final <= 45) ||
-          (betType === "big"   && final >= 46);
+          (picked === "even"  && final % 2 === 0) ||
+          (picked === "odd"   && final % 2 !== 0) ||
+          (picked === "small" && final <= 45) ||
+          (picked === "big"   && final >= 46);
 
         const winAmt = isWin ? activeBet * 2 : 0;
-        setWon(isWin); setPrize(winAmt); setGameState("result");
+        setWon(isWin);
+        setPrize(winAmt);
+        setPhase("reveal");
         setSaving(true);
-        placeBet(player.telegramId, { amount: activeBet, game: "parity", won: isWin, winAmount: winAmt })
+        placeBet(player!.telegramId, { amount: activeBet, game: "parity", won: isWin, winAmount: winAmt })
           .then(() => refresh()).catch(() => {}).finally(() => setSaving(false));
       }
-    }, 80);
-  }, [player, betType, activeBet, gameState]);
+    }, 120);
+  }
 
+  function playAgain() {
+    clearTimers();
+    setPhase("idle");
+    setFinalNum(null);
+    setDisplayNum(null);
+    setBetType(null);
+    pickedRef.current = null;
+    setWon(false);
+    setPrize(0);
+  }
+
+  useEffect(() => () => clearTimers(), []);
+
+  const numIsEven = finalNum !== null && finalNum % 2 === 0;
+  const numIsBig  = finalNum !== null && finalNum >= 46;
   const selectedOpt = BET_OPTIONS.find(b => b.type === betType);
-  const numIsEven = drawnNum !== null && drawnNum % 2 === 0;
-  const numIsBig = drawnNum !== null && drawnNum >= 46;
 
-  // Number display color based on odd/even
   const numBg = displayNum === null
     ? (isLight ? "rgba(99,102,241,0.1)" : "rgba(255,255,255,0.06)")
-    : displayNum % 2 === 0
-      ? "linear-gradient(145deg, #1e3a5f, #1e40af)"
-      : "linear-gradient(145deg, #7f1d1d, #dc2626)";
-  const numBorder = displayNum === null
-    ? (isLight ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.1)")
-    : displayNum % 2 === 0 ? "#60a5faaa" : "#f87171aa";
-  const numShadow = displayNum === null
-    ? "0 4px 0 rgba(0,0,0,0.1)"
-    : displayNum % 2 === 0
-      ? "0 8px 0 #0a1a40, 0 10px 30px rgba(37,99,235,0.6)"
-      : "0 8px 0 #450a0a, 0 10px 30px rgba(220,38,38,0.6)";
+    : phase === "reveal"
+      ? (numIsEven ? "linear-gradient(145deg,#1e3a5f,#1e40af)" : "linear-gradient(145deg,#7f1d1d,#dc2626)")
+      : "linear-gradient(145deg,#312e81,#4c1d95)";
+  const numBorder = phase === "reveal"
+    ? (numIsEven ? "#60a5faaa" : "#f87171aa")
+    : (phase === "predict" ? "#a78bfa88" : (isLight ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.1)"));
+  const numShadow = phase === "predict"
+    ? "0 8px 0 #1e1b4b, 0 10px 30px rgba(139,92,246,0.5)"
+    : phase === "reveal"
+      ? (numIsEven ? "0 8px 0 #0a1a40, 0 10px 30px rgba(37,99,235,0.6)" : "0 8px 0 #450a0a, 0 10px 30px rgba(220,38,38,0.6)")
+      : "0 4px 0 rgba(0,0,0,0.1)";
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: ts.bg }}>
@@ -118,20 +174,49 @@ export default function Parity() {
           <div className="absolute inset-0 pointer-events-none rounded-3xl"
             style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 50%)" }} />
 
-          <p className="text-xs font-black tracking-widest" style={{ color: ts.textSub }}>{t.number} (1-90)</p>
+          {/* Phase label */}
+          <p className="text-xs font-black tracking-widest" style={{ color: ts.textSub }}>
+            {phase === "idle"    ? `${t.number} (1-90)` :
+             phase === "predict" ? `⚡ TAXMIN QILING! — ${countdown}s` :
+             `✅ ${t.number} (1-90)`}
+          </p>
 
-          {/* Big number */}
-          <div className="w-36 h-36 rounded-3xl flex items-center justify-center relative"
-            style={{ background: numBg, border: `3px solid ${numBorder}`, boxShadow: numShadow, transition: "all 0.12s" }}>
-            <div className="absolute inset-0 rounded-3xl pointer-events-none"
-              style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.18) 0%, transparent 50%)" }} />
-            <span className="relative font-black" style={{ fontSize: displayNum !== null && displayNum >= 10 ? 48 : 60, color: "white", textShadow: "0 4px 12px rgba(0,0,0,0.5)", lineHeight: 1 }}>
-              {displayNum !== null ? displayNum : "?"}
-            </span>
-          </div>
+          {/* Countdown ring during predict */}
+          {phase === "predict" && (
+            <div className="relative">
+              <svg width="160" height="160" style={{ position: "absolute", top: -8, left: -12, transform: "rotate(-90deg)" }}>
+                <circle cx="80" cy="80" r="72" fill="none" stroke="rgba(139,92,246,0.2)" strokeWidth="6" />
+                <circle cx="80" cy="80" r="72" fill="none" stroke="#a78bfa" strokeWidth="6"
+                  strokeDasharray={`${2 * Math.PI * 72}`}
+                  strokeDashoffset={`${2 * Math.PI * 72 * (1 - countdown / 5)}`}
+                  style={{ transition: "stroke-dashoffset 0.9s linear" }}
+                  strokeLinecap="round" />
+              </svg>
+              <div className="w-36 h-36 rounded-3xl flex items-center justify-center relative"
+                style={{ background: numBg, border: `3px solid ${numBorder}`, boxShadow: numShadow, transition: "all 0.12s" }}>
+                <div className="absolute inset-0 rounded-3xl pointer-events-none"
+                  style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.18) 0%, transparent 50%)" }} />
+                <span className="relative font-black" style={{ fontSize: displayNum !== null && displayNum >= 10 ? 48 : 60, color: "white", textShadow: "0 4px 12px rgba(0,0,0,0.5)", lineHeight: 1 }}>
+                  {displayNum !== null ? displayNum : "?"}
+                </span>
+              </div>
+            </div>
+          )}
 
-          {/* Labels */}
-          {drawnNum !== null && (
+          {/* Normal number box (idle + reveal) */}
+          {phase !== "predict" && (
+            <div className="w-36 h-36 rounded-3xl flex items-center justify-center relative"
+              style={{ background: numBg, border: `3px solid ${numBorder}`, boxShadow: numShadow, transition: "all 0.12s" }}>
+              <div className="absolute inset-0 rounded-3xl pointer-events-none"
+                style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.18) 0%, transparent 50%)" }} />
+              <span className="relative font-black" style={{ fontSize: displayNum !== null && displayNum >= 10 ? 48 : 60, color: "white", textShadow: "0 4px 12px rgba(0,0,0,0.5)", lineHeight: 1 }}>
+                {displayNum !== null ? displayNum : "?"}
+              </span>
+            </div>
+          )}
+
+          {/* Result labels */}
+          {phase === "reveal" && finalNum !== null && (
             <div className="flex gap-2 flex-wrap justify-center">
               <span className="px-3 py-1 rounded-full text-sm font-black"
                 style={{ background: "rgba(255,255,255,0.1)", color: numIsEven ? "#60a5fa" : "#f87171" }}>
@@ -139,85 +224,114 @@ export default function Parity() {
               </span>
               <span className="px-3 py-1 rounded-full text-sm font-black"
                 style={{ background: "rgba(255,255,255,0.1)", color: numIsBig ? "#fbbf24" : "#4ade80" }}>
-                {numIsBig ? t.big : t.small} ({drawnNum <= 45 ? "1-45" : "46-90"})
+                {numIsBig ? t.big : t.small} ({finalNum <= 45 ? "1-45" : "46-90"})
               </span>
             </div>
           )}
 
           {/* Win/Lose */}
-          {gameState === "result" && (
+          {phase === "reveal" && (
             <div className="text-center">
               <p className="font-black text-2xl"
                 style={{ color: won ? "#4ade80" : "#f87171", textShadow: won ? "0 0 24px #4ade8088" : "0 0 16px #f8717166" }}>
                 {won ? t.parityWin : t.parityLose}
               </p>
+              {betType && (
+                <p className="text-xs mt-1" style={{ color: ts.textSub }}>
+                  Taxmin: {BET_OPTIONS.find(b => b.type === betType)?.emoji} {BET_OPTIONS.find(b => b.type === betType)?.label}
+                </p>
+              )}
               {won && <p className="font-bold text-sm mt-1" style={{ color: isLight ? "#059669" : "white" }}>+{prize.toLocaleString()} UZS</p>}
             </div>
           )}
         </div>
 
-        {/* Bet type */}
-        <div className="grid grid-cols-2 gap-2.5">
-          {BET_OPTIONS.map(opt => {
-            const isActive = betType === opt.type;
-            return (
-              <button key={opt.type} onClick={() => setBetType(opt.type)}
-                className="rounded-2xl p-3.5 text-left active:scale-95 transition-all relative overflow-hidden"
-                style={{
-                  background: isActive ? opt.bg : (isLight ? "rgba(99,102,241,0.05)" : "rgba(255,255,255,0.04)"),
-                  border: `2px solid ${isActive ? `${opt.color}99` : (isLight ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.07)")}`,
-                  boxShadow: isActive ? opt.shadow : "0 2px 0 rgba(0,0,0,0.1)",
-                }}>
-                {isActive && <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.12) 0%, transparent 50%)" }} />}
-                <p className="font-black text-base relative" style={{ color: isActive ? opt.color : ts.text }}>
-                  {opt.emoji} {opt.label}
-                </p>
-                <p className="text-xs mt-0.5 relative" style={{ color: ts.textSub }}>{opt.sub}</p>
-                <p className="text-xs font-black mt-1 relative" style={{ color: isActive ? opt.color : ts.textSub }}>
-                  50% chance • x2
-                </p>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Bet amount */}
-        <div className="rounded-2xl p-4"
-          style={{ background: ts.card, border: `1px solid ${ts.cardBorder}` }}>
-          <p className="text-xs font-bold mb-3 tracking-widest" style={{ color: ts.textSub }}>💰 {t.betAmount}</p>
-          <div className="grid grid-cols-4 gap-2 mb-3">
-            {["MIN","1/2","X2","MAX"].map(a => (
-              <button key={a} onClick={() => setQuickBet(a)}
-                className="py-2 rounded-xl text-xs font-bold active:scale-95"
-                style={{ background: ts.btnSecondary, color: ts.btnSecondaryText, border: `1px solid ${ts.cardBorder}` }}>
-                {a}
-              </button>
-            ))}
-          </div>
-          <input type="number" value={betInput} onChange={e => setBetInput(e.target.value)}
-            className="w-full rounded-xl px-4 py-3 font-black text-center text-lg outline-none"
-            style={{ background: ts.input, border: `1px solid ${ts.inputBorder}`, color: ts.text }}
-            placeholder="2000" min={2000} />
-          {selectedOpt && (
-            <p className="text-xs mt-2 text-center" style={{ color: ts.textSub }}>
-              {t.potential}: <span className="font-black" style={{ color: selectedOpt.color }}>{(activeBet * 2).toLocaleString()} UZS</span>
+        {/* Phase: predict — big clickable bet type buttons */}
+        {phase === "predict" && (
+          <div>
+            <p className="text-center text-sm font-black mb-3 animate-pulse" style={{ color: "#a78bfa" }}>
+              👇 TAXMIN QILING (vaqt: {countdown}s)
             </p>
-          )}
-        </div>
+            <div className="grid grid-cols-2 gap-3">
+              {BET_OPTIONS.map(opt => (
+                <button key={opt.type} onClick={() => pickBet(opt.type)}
+                  className="rounded-2xl py-5 text-center active:scale-95 transition-all relative overflow-hidden"
+                  style={{ background: opt.bg, border: `2px solid ${opt.color}99`, boxShadow: opt.shadow }}>
+                  <div className="absolute inset-0 pointer-events-none"
+                    style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.12) 0%, transparent 50%)" }} />
+                  <p className="font-black text-xl relative" style={{ color: opt.color }}>{opt.emoji} {opt.label}</p>
+                  <p className="text-xs mt-1 relative" style={{ color: "rgba(255,255,255,0.6)" }}>{opt.sub}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
-        {/* Play button */}
-        <button onClick={play}
-          disabled={!player || !betType || player.balance < activeBet || gameState === "rolling"}
-          className="w-full py-5 rounded-2xl font-black text-xl active:scale-95 transition-all disabled:opacity-40 mt-auto"
-          style={{
-            background: selectedOpt
-              ? selectedOpt.bg
-              : (isLight ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.05)"),
-            color: selectedOpt ? selectedOpt.color : ts.textSub,
-            boxShadow: selectedOpt ? selectedOpt.shadow : "none",
-          }}>
-          {gameState === "rolling" ? t.rolling : gameState === "result" ? `🔄 ${t.playAgain}` : t.bet}
-        </button>
+        {/* Phase: idle — bet amount + play button */}
+        {phase === "idle" && (
+          <>
+            {/* Bet options info */}
+            <div className="grid grid-cols-2 gap-2">
+              {BET_OPTIONS.map(opt => (
+                <div key={opt.type} className="rounded-2xl p-3 text-left relative overflow-hidden"
+                  style={{
+                    background: isLight ? "rgba(99,102,241,0.05)" : "rgba(255,255,255,0.04)",
+                    border: `1.5px solid ${isLight ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.07)"}`,
+                  }}>
+                  <p className="font-black text-sm" style={{ color: ts.text }}>{opt.emoji} {opt.label}</p>
+                  <p className="text-xs mt-0.5" style={{ color: ts.textSub }}>{opt.sub}</p>
+                  <p className="text-xs font-black mt-1" style={{ color: opt.color }}>50% • x2</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Bet amount */}
+            <div className="rounded-2xl p-4"
+              style={{ background: ts.card, border: `1px solid ${ts.cardBorder}` }}>
+              <p className="text-xs font-bold mb-3 tracking-widest" style={{ color: ts.textSub }}>💰 {t.betAmount}</p>
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                {["MIN","1/2","X2","MAX"].map(a => (
+                  <button key={a} onClick={() => setQuickBet(a)}
+                    className="py-2 rounded-xl text-xs font-bold active:scale-95"
+                    style={{ background: ts.btnSecondary, color: ts.btnSecondaryText, border: `1px solid ${ts.cardBorder}` }}>
+                    {a}
+                  </button>
+                ))}
+              </div>
+              <input type="number" value={betInput} onChange={e => setBetInput(e.target.value)}
+                className="w-full rounded-xl px-4 py-3 font-black text-center text-lg outline-none"
+                style={{ background: ts.input, border: `1px solid ${ts.inputBorder}`, color: ts.text }}
+                placeholder="2000" min={2000} />
+              <p className="text-xs mt-2 text-center" style={{ color: ts.textSub }}>
+                {t.potential}: <span className="font-black" style={{ color: "#a78bfa" }}>{(activeBet * 2).toLocaleString()} UZS</span>
+              </p>
+            </div>
+
+            <button onClick={startGame}
+              disabled={!player || player.balance < activeBet}
+              className="w-full py-5 rounded-2xl font-black text-xl active:scale-95 transition-all disabled:opacity-40"
+              style={{
+                background: "linear-gradient(145deg,#312e81,#4c1d95)",
+                color: "#a78bfa",
+                boxShadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(139,92,246,0.5)",
+              }}>
+              🎲 {t.bet} — {activeBet.toLocaleString()} UZS
+            </button>
+          </>
+        )}
+
+        {/* Phase: reveal — play again */}
+        {phase === "reveal" && (
+          <button onClick={playAgain}
+            className="w-full py-5 rounded-2xl font-black text-xl active:scale-95 transition-all"
+            style={{
+              background: "linear-gradient(145deg,#312e81,#4c1d95)",
+              color: "#a78bfa",
+              boxShadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(139,92,246,0.5)",
+            }}>
+            🔄 {t.playAgain}
+          </button>
+        )}
 
         {saving && <p className="text-center text-xs" style={{ color: ts.textSub }}>{t.saving}</p>}
       </div>
