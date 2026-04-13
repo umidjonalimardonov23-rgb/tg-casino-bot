@@ -6,11 +6,12 @@ import { placeBet } from "@/lib/api";
 import GameHeader from "@/components/GameHeader";
 
 type BetType = "even" | "odd" | "small" | "big";
-// idle   → enter bet & press PLAY
-// spin   → number animates then reveals final number
-// pick   → final number visible, player picks JUFT/TOQ/KICHIK/KATTA (5s timer)
-// result → win/lose shown
-type Phase = "idle" | "spin" | "pick" | "result";
+// idle   → enter bet, press PLAY
+// spin1  → first spin: number animates → stops at final
+// pick   → final number shown, 4 buttons appear, player picks
+// spin2  → second spin: number animates again → stops at same final
+// result → win/lose
+type Phase = "idle" | "spin1" | "pick" | "spin2" | "result";
 
 export default function Parity() {
   const { player, refresh } = usePlayer();
@@ -24,28 +25,23 @@ export default function Parity() {
   const [won, setWon] = useState(false);
   const [prize, setPrize] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [countdown, setCountdown] = useState(5);
-  const spinRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lockedBet = useRef(0);
 
   const activeBet = Math.max(Number(betInput) || 2000, 2000);
   const isLight = theme === "light";
 
-  const BET_OPTIONS: {
-    type: BetType; label: string; sub: string; emoji: string;
-    color: string; bg: string; shadow: string;
-  }[] = [
-    { type: "even",  label: t.even,  sub: "2,4,6...90", emoji: "2️⃣",
+  const BET_OPTIONS: { type: BetType; label: string; emoji: string; color: string; bg: string; shadow: string }[] = [
+    { type: "even",  label: t.even,  emoji: "2️⃣",
       color: "#60a5fa", bg: "linear-gradient(145deg,#1e3a5f,#1e40af)",
       shadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(37,99,235,0.5)" },
-    { type: "odd",   label: t.odd,   sub: "1,3,5...89", emoji: "1️⃣",
+    { type: "odd",   label: t.odd,   emoji: "1️⃣",
       color: "#f87171", bg: "linear-gradient(145deg,#7f1d1d,#dc2626)",
       shadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(220,38,38,0.5)" },
-    { type: "small", label: t.small, sub: "1–45",       emoji: "⬇️",
+    { type: "small", label: t.small, emoji: "⬇️",
       color: "#4ade80", bg: "linear-gradient(145deg,#064e3b,#059669)",
       shadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(5,150,105,0.5)" },
-    { type: "big",   label: t.big,   sub: "46–90",      emoji: "⬆️",
+    { type: "big",   label: t.big,   emoji: "⬆️",
       color: "#fbbf24", bg: "linear-gradient(145deg,#78350f,#d97706)",
       shadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(217,119,6,0.5)" },
   ];
@@ -60,12 +56,27 @@ export default function Parity() {
     setBetInput(String(v));
   }
 
-  function clearAll() {
-    if (spinRef.current) { clearInterval(spinRef.current); spinRef.current = null; }
-    if (pickRef.current) { clearInterval(pickRef.current); pickRef.current = null; }
+  function clearTimer() {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   }
 
-  // Phase idle → spin: lock bet, start animation
+  // Run a spin animation that stops at `target`, then call `onDone`
+  function runSpin(target: number, ticks: number, baseMs: number, slowAt: number, onDone: () => void) {
+    let i = 0;
+    timerRef.current = setInterval(() => {
+      i++;
+      const ms = i < slowAt ? baseMs : i < ticks - 2 ? baseMs * 2 : baseMs * 3;
+      if (i < ticks) {
+        setDisplayNum(Math.floor(Math.random() * 90) + 1);
+      } else {
+        clearTimer();
+        setDisplayNum(target);
+        onDone();
+      }
+    }, baseMs);
+  }
+
+  // Phase idle → spin1
   const startGame = useCallback(() => {
     if (!player || player.balance < activeBet || phase !== "idle") return;
     lockedBet.current = activeBet;
@@ -73,67 +84,41 @@ export default function Parity() {
     setFinalNum(final);
     setDisplayNum(null);
     setBetType(null);
-    setPhase("spin");
+    setPhase("spin1");
 
-    // Fast random numbers for 2s, then slow down and land
-    let ticks = 0;
-    const TOTAL = 28;
-    spinRef.current = setInterval(() => {
-      ticks++;
-      const delay = ticks < 18 ? 70 : ticks < 24 ? 140 : 220; // not used for delay but for feel
-      if (ticks < TOTAL) {
-        setDisplayNum(Math.floor(Math.random() * 90) + 1);
-      } else {
-        clearInterval(spinRef.current!); spinRef.current = null;
-        setDisplayNum(final);
-        // Brief pause then switch to pick phase
-        setTimeout(() => {
-          setPhase("pick");
-          setCountdown(5);
-          let secs = 5;
-          pickRef.current = setInterval(() => {
-            secs--;
-            setCountdown(secs);
-            if (secs <= 0) {
-              clearInterval(pickRef.current!); pickRef.current = null;
-              // Time's up — auto-random pick (player loses edge)
-              const opts: BetType[] = ["even","odd","small","big"];
-              const auto = opts[Math.floor(Math.random() * 4)];
-              resolveGame(final, auto);
-            }
-          }, 1000);
-        }, 400);
-      }
-    }, 80);
+    runSpin(final, 26, 80, 20, () => {
+      setTimeout(() => setPhase("pick"), 300);
+    });
   }, [player, activeBet, phase]);
 
-  // Phase pick: player taps their prediction
+  // Phase pick → spin2
   function pickBet(type: BetType) {
     if (phase !== "pick") return;
-    clearAll();
     setBetType(type);
-    resolveGame(finalNum!, type);
-  }
+    setPhase("spin2");
 
-  // Resolve win/lose and call API
-  function resolveGame(final: number, picked: BetType) {
-    const isWin =
-      (picked === "even"  && final % 2 === 0) ||
-      (picked === "odd"   && final % 2 !== 0) ||
-      (picked === "small" && final <= 45) ||
-      (picked === "big"   && final >= 46);
-    const winAmt = isWin ? lockedBet.current * 2 : 0;
-    setWon(isWin);
-    setPrize(winAmt);
-    setPhase("result");
-    setSaving(true);
-    placeBet(player!.telegramId, {
-      amount: lockedBet.current, game: "parity", won: isWin, winAmount: winAmt,
-    }).then(() => refresh()).catch(() => {}).finally(() => setSaving(false));
+    runSpin(finalNum!, 18, 90, 13, () => {
+      setTimeout(() => {
+        const fn = finalNum!;
+        const isWin =
+          (type === "even"  && fn % 2 === 0) ||
+          (type === "odd"   && fn % 2 !== 0) ||
+          (type === "small" && fn <= 45) ||
+          (type === "big"   && fn >= 46);
+        const winAmt = isWin ? lockedBet.current * 2 : 0;
+        setWon(isWin);
+        setPrize(winAmt);
+        setPhase("result");
+        setSaving(true);
+        placeBet(player!.telegramId, {
+          amount: lockedBet.current, game: "parity", won: isWin, winAmount: winAmt,
+        }).then(() => refresh()).catch(() => {}).finally(() => setSaving(false));
+      }, 200);
+    });
   }
 
   function playAgain() {
-    clearAll();
+    clearTimer();
     setPhase("idle");
     setFinalNum(null);
     setDisplayNum(null);
@@ -142,30 +127,28 @@ export default function Parity() {
     setPrize(0);
   }
 
-  useEffect(() => () => clearAll(), []);
+  useEffect(() => () => clearTimer(), []);
 
   const numIsEven = finalNum !== null && finalNum % 2 === 0;
   const numIsBig  = finalNum !== null && finalNum >= 46;
-
-  // Number box style
-  const numBg =
-    phase === "idle"   ? (isLight ? "rgba(99,102,241,0.1)" : "rgba(255,255,255,0.06)") :
-    phase === "spin"   ? "linear-gradient(145deg,#312e81,#4c1d95)" :
-    phase === "pick"   ? (numIsEven ? "linear-gradient(145deg,#1e3a5f,#1e40af)" : "linear-gradient(145deg,#7f1d1d,#dc2626)") :
-    /* result */         (numIsEven ? "linear-gradient(145deg,#1e3a5f,#1e40af)" : "linear-gradient(145deg,#7f1d1d,#dc2626)");
-
-  const numBorder =
-    phase === "idle"   ? (isLight ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.1)") :
-    phase === "spin"   ? "#a78bfa88" :
-    /* pick/result */    (numIsEven ? "#60a5faaa" : "#f87171aa");
-
-  const numShadow =
-    phase === "idle"   ? "0 4px 0 rgba(0,0,0,0.1)" :
-    phase === "spin"   ? "0 8px 0 #1e1b4b, 0 10px 30px rgba(139,92,246,0.5)" :
-    numIsEven          ? "0 8px 0 #0a1a40, 0 10px 30px rgba(37,99,235,0.6)" :
-                         "0 8px 0 #450a0a, 0 10px 30px rgba(220,38,38,0.6)";
-
   const selectedOpt = BET_OPTIONS.find(b => b.type === betType);
+
+  // Number box visual style
+  const isSpinning = phase === "spin1" || phase === "spin2";
+  const numBg =
+    isSpinning          ? "linear-gradient(145deg,#312e81,#4c1d95)" :
+    phase === "idle"    ? (isLight ? "rgba(99,102,241,0.1)" : "rgba(255,255,255,0.06)") :
+    numIsEven           ? "linear-gradient(145deg,#1e3a5f,#1e40af)" :
+                          "linear-gradient(145deg,#7f1d1d,#dc2626)";
+  const numBorder =
+    isSpinning          ? "#a78bfa88" :
+    phase === "idle"    ? (isLight ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.1)") :
+    numIsEven           ? "#60a5faaa" : "#f87171aa";
+  const numShadow =
+    isSpinning          ? "0 8px 0 #1e1b4b, 0 10px 30px rgba(139,92,246,0.5)" :
+    phase === "idle"    ? "0 4px 0 rgba(0,0,0,0.1)" :
+    numIsEven           ? "0 8px 0 #0a1a40, 0 10px 30px rgba(37,99,235,0.6)" :
+                          "0 8px 0 #450a0a, 0 10px 30px rgba(220,38,38,0.6)";
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: ts.bg }}>
@@ -173,7 +156,7 @@ export default function Parity() {
 
       <div className="flex-1 px-4 pb-6 flex flex-col gap-4">
 
-        {/* ── Number display box ── */}
+        {/* ── Number display ── */}
         <div className="rounded-3xl p-5 flex flex-col items-center gap-3 relative overflow-hidden"
           style={{
             background: isLight
@@ -184,55 +167,27 @@ export default function Parity() {
           <div className="absolute inset-0 pointer-events-none rounded-3xl"
             style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.06) 0%,transparent 50%)" }} />
 
-          {/* Phase label */}
           <p className="text-xs font-black tracking-widest" style={{ color: ts.textSub }}>
             {phase === "idle"   ? `${t.number} (1-90)` :
-             phase === "spin"   ? "⏳ SON CHIQMOQDA..." :
-             phase === "pick"   ? `✅ SON CHIQDI — TAXMIN QILING! (${countdown}s)` :
-                                  `✅ ${t.number} (1-90)`}
+             isSpinning         ? "⏳ SON AYLANMOQDA..." :
+             phase === "pick"   ? "👇 TAXMIN QILING" :
+                                  `✅ ${t.number}`}
           </p>
 
-          {/* Countdown ring (pick phase) */}
-          {phase === "pick" && (
-            <div className="relative flex items-center justify-center" style={{ width: 144, height: 144 }}>
-              <svg width="160" height="160" style={{ position: "absolute", top: -8, left: -8, transform: "rotate(-90deg)" }}>
-                <circle cx="80" cy="80" r="72" fill="none" stroke="rgba(139,92,246,0.15)" strokeWidth="5" />
-                <circle cx="80" cy="80" r="72" fill="none" stroke={numIsEven ? "#60a5fa" : "#f87171"}
-                  strokeWidth="5" strokeLinecap="round"
-                  strokeDasharray={`${2 * Math.PI * 72}`}
-                  strokeDashoffset={`${2 * Math.PI * 72 * (1 - countdown / 5)}`}
-                  style={{ transition: "stroke-dashoffset 0.9s linear" }} />
-              </svg>
-              <div className="w-36 h-36 rounded-3xl flex items-center justify-center relative"
-                style={{ background: numBg, border: `3px solid ${numBorder}`, boxShadow: numShadow }}>
-                <div className="absolute inset-0 rounded-3xl pointer-events-none"
-                  style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.18) 0%,transparent 50%)" }} />
-                <span className="relative font-black" style={{
-                  fontSize: displayNum !== null && displayNum >= 10 ? 48 : 60,
-                  color: "white", textShadow: "0 4px 12px rgba(0,0,0,0.5)", lineHeight: 1
-                }}>
-                  {displayNum !== null ? displayNum : "?"}
-                </span>
-              </div>
-            </div>
-          )}
+          {/* Big number box */}
+          <div className="w-36 h-36 rounded-3xl flex items-center justify-center relative"
+            style={{ background: numBg, border: `3px solid ${numBorder}`, boxShadow: numShadow, transition: "background 0.2s, border-color 0.2s" }}>
+            <div className="absolute inset-0 rounded-3xl pointer-events-none"
+              style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.18) 0%,transparent 50%)" }} />
+            <span className="relative font-black" style={{
+              fontSize: displayNum !== null && displayNum >= 10 ? 48 : 60,
+              color: "white", textShadow: "0 4px 12px rgba(0,0,0,0.5)", lineHeight: 1,
+            }}>
+              {displayNum !== null ? displayNum : "?"}
+            </span>
+          </div>
 
-          {/* Normal number box (idle / spin / result) */}
-          {phase !== "pick" && (
-            <div className="w-36 h-36 rounded-3xl flex items-center justify-center relative"
-              style={{ background: numBg, border: `3px solid ${numBorder}`, boxShadow: numShadow, transition: "all 0.15s" }}>
-              <div className="absolute inset-0 rounded-3xl pointer-events-none"
-                style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.18) 0%,transparent 50%)" }} />
-              <span className="relative font-black" style={{
-                fontSize: displayNum !== null && displayNum >= 10 ? 48 : 60,
-                color: "white", textShadow: "0 4px 12px rgba(0,0,0,0.5)", lineHeight: 1
-              }}>
-                {displayNum !== null ? displayNum : "?"}
-              </span>
-            </div>
-          )}
-
-          {/* Even/Odd + Small/Big labels after reveal */}
+          {/* Labels after first spin stops */}
           {(phase === "pick" || phase === "result") && finalNum !== null && (
             <div className="flex gap-2 flex-wrap justify-center">
               <span className="px-3 py-1 rounded-full text-sm font-black"
@@ -241,12 +196,12 @@ export default function Parity() {
               </span>
               <span className="px-3 py-1 rounded-full text-sm font-black"
                 style={{ background: "rgba(255,255,255,0.1)", color: numIsBig ? "#fbbf24" : "#4ade80" }}>
-                {numIsBig ? t.big : t.small} ({finalNum <= 45 ? "1-45" : "46-90"})
+                {numIsBig ? t.big : t.small}
               </span>
             </div>
           )}
 
-          {/* Win/Lose result */}
+          {/* Win / Lose */}
           {phase === "result" && (
             <div className="text-center">
               <p className="font-black text-2xl"
@@ -267,47 +222,40 @@ export default function Parity() {
           )}
         </div>
 
-        {/* ── PICK PHASE: big prediction buttons ── */}
+        {/* ── PICK phase: 4 buttons below number ── */}
         {phase === "pick" && (
-          <div>
-            <p className="text-center text-sm font-black mb-3" style={{ color: "#a78bfa" }}>
-              👇 Son qaysi turkumga kiradi? Tanlang!
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              {BET_OPTIONS.map(opt => (
-                <button key={opt.type} onClick={() => pickBet(opt.type)}
-                  className="rounded-2xl py-5 text-center active:scale-95 transition-all relative overflow-hidden"
-                  style={{ background: opt.bg, border: `2px solid ${opt.color}99`, boxShadow: opt.shadow }}>
-                  <div className="absolute inset-0 pointer-events-none"
-                    style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.12) 0%,transparent 50%)" }} />
-                  <p className="font-black text-xl relative" style={{ color: opt.color }}>
-                    {opt.emoji} {opt.label}
-                  </p>
-                  <p className="text-xs mt-1 relative" style={{ color: "rgba(255,255,255,0.6)" }}>
-                    {opt.sub}
-                  </p>
-                </button>
-              ))}
-            </div>
+          <div className="grid grid-cols-2 gap-3">
+            {BET_OPTIONS.map(opt => (
+              <button key={opt.type} onClick={() => pickBet(opt.type)}
+                className="rounded-2xl py-6 text-center active:scale-95 transition-all relative overflow-hidden"
+                style={{ background: opt.bg, border: `2px solid ${opt.color}99`, boxShadow: opt.shadow }}>
+                <div className="absolute inset-0 pointer-events-none"
+                  style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.12) 0%,transparent 50%)" }} />
+                <p className="font-black text-2xl relative" style={{ color: opt.color }}>
+                  {opt.emoji}
+                </p>
+                <p className="font-black text-lg mt-1 relative" style={{ color: opt.color }}>
+                  {opt.label}
+                </p>
+              </button>
+            ))}
           </div>
         )}
 
-        {/* ── IDLE PHASE: bet input + play button ── */}
+        {/* ── IDLE phase: info + bet input + play button ── */}
         {phase === "idle" && (
           <>
-            {/* Bet type info cards */}
-            <div className="grid grid-cols-2 gap-2">
+            {/* Info cards (no sub-text) */}
+            <div className="grid grid-cols-4 gap-2">
               {BET_OPTIONS.map(opt => (
-                <div key={opt.type} className="rounded-2xl p-3 relative"
+                <div key={opt.type} className="rounded-2xl p-3 flex flex-col items-center gap-1 relative"
                   style={{
                     background: isLight ? "rgba(99,102,241,0.05)" : "rgba(255,255,255,0.04)",
                     border: `1.5px solid ${isLight ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.07)"}`,
                   }}>
-                  <p className="font-black text-sm" style={{ color: ts.text }}>
-                    {opt.emoji} {opt.label}
-                  </p>
-                  <p className="text-xs mt-0.5" style={{ color: ts.textSub }}>{opt.sub}</p>
-                  <p className="text-xs font-black mt-1" style={{ color: opt.color }}>50% • x2</p>
+                  <span className="text-xl">{opt.emoji}</span>
+                  <p className="font-black text-xs text-center" style={{ color: opt.color }}>{opt.label}</p>
+                  <p className="text-xs font-bold" style={{ color: ts.textSub }}>x2</p>
                 </div>
               ))}
             </div>
@@ -352,16 +300,16 @@ export default function Parity() {
           </>
         )}
 
-        {/* ── SPIN PHASE: waiting message ── */}
-        {phase === "spin" && (
-          <div className="text-center py-6">
-            <p className="font-black text-lg animate-pulse" style={{ color: "#a78bfa" }}>
-              ⏳ Son chiqmoqda, kuting...
+        {/* ── SPIN phases: waiting text ── */}
+        {isSpinning && (
+          <div className="text-center py-4">
+            <p className="font-black text-base animate-pulse" style={{ color: "#a78bfa" }}>
+              {phase === "spin1" ? "⏳ Son chiqmoqda..." : "🎲 Natija aniqlanmoqda..."}
             </p>
           </div>
         )}
 
-        {/* ── RESULT PHASE: play again ── */}
+        {/* ── RESULT phase: play again ── */}
         {phase === "result" && (
           <button onClick={playAgain}
             className="w-full py-5 rounded-2xl font-black text-xl active:scale-95 transition-all"
@@ -375,9 +323,7 @@ export default function Parity() {
         )}
 
         {saving && (
-          <p className="text-center text-xs" style={{ color: ts.textSub }}>
-            {t.saving}
-          </p>
+          <p className="text-center text-xs" style={{ color: ts.textSub }}>{t.saving}</p>
         )}
       </div>
     </div>
