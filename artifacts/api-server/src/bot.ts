@@ -146,9 +146,11 @@ export async function startBot() {
     await bot.setWebHook(webhookUrl);
     logger.info({ webhookUrl }, "Bot started (webhook mode)");
   } else {
-    // Development — do NOT start polling (would conflict with production webhook)
-    logger.info("Bot skipped in development (production webhook is active)");
-    return;
+    // Development — start polling (clear any old webhook first)
+    bot = new TelegramBot(TOKEN, { polling: false });
+    await bot.deleteWebHook();
+    await bot.startPolling();
+    logger.info("Bot started (polling mode — development)");
   }
 
   // /start command (with referral support)
