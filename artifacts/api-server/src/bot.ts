@@ -70,12 +70,19 @@ async function checkSub(userId: number): Promise<boolean> {
 }
 
 async function getOrCreatePlayer(tgUser: TelegramBot.User) {
-  const rows = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(tgUser.id)));
-  if (rows.length) {
-    await db.update(playersTable).set({ username: tgUser.username ?? null, firstName: tgUser.first_name, updatedAt: new Date() }).where(eq(playersTable.telegramId, String(tgUser.id)));
-    return rows[0];
-  }
-  const [p] = await db.insert(playersTable).values({ telegramId: String(tgUser.id), username: tgUser.username ?? null, firstName: tgUser.first_name, lastName: tgUser.last_name ?? null, balance: 0 }).returning();
+  const [p] = await db.insert(playersTable)
+    .values({
+      telegramId: String(tgUser.id),
+      username: tgUser.username ?? null,
+      firstName: tgUser.first_name,
+      lastName: tgUser.last_name ?? null,
+      balance: 0,
+    })
+    .onConflictDoUpdate({
+      target: playersTable.telegramId,
+      set: { username: tgUser.username ?? null, firstName: tgUser.first_name, updatedAt: new Date() },
+    })
+    .returning();
   return p;
 }
 
