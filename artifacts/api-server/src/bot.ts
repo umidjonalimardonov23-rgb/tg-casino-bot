@@ -77,15 +77,19 @@ async function getOrCreatePlayer(tgUser: TelegramBot.User) {
 
 const DEPOSIT_URL = APP_URL.endsWith("/") ? `${APP_URL}deposit` : `${APP_URL}/deposit`;
 
-async function mainMenu(chatId: number, name: string, balance: number) {
+async function mainMenu(chatId: number, name: string, balance: number, isAdmin = false) {
+  const keyboard: any[][] = [
+    [{ text: "🎮 O'YINNI BOSHLASH", web_app: { url: APP_URL } }],
+    [{ text: "💰 Balansim", callback_data: "balance" }, { text: "📖 Qoidalar", callback_data: "howto" }],
+    [{ text: "➕ Hisob To'ldirish", web_app: { url: DEPOSIT_URL } }, { text: "💸 Pul Yechish", callback_data: "withdraw_menu" }],
+    [{ text: "👥 Referal", callback_data: "referral_menu" }, { text: "❓ Yordam", callback_data: "help_menu" }],
+  ];
+  if (isAdmin) {
+    keyboard.push([{ text: "🔧 ADMIN PANEL", callback_data: "admin_panel" }]);
+  }
   await bot!.sendMessage(chatId,
     `🎮 <b>Salom, ${name}!</b>\n\n💰 Balansingiz: <b>${fmt(balance)} UZS</b>\n\n👇 O'yinni boshlash uchun tugmani bosing:`,
-    { parse_mode: "HTML", reply_markup: { inline_keyboard: [
-      [{ text: "🎮 O'YINNI BOSHLASH", web_app: { url: APP_URL } }],
-      [{ text: "💰 Balansim", callback_data: "balance" }, { text: "📖 Qoidalar", callback_data: "howto" }],
-      [{ text: "➕ Hisob To'ldirish", web_app: { url: DEPOSIT_URL } }, { text: "💸 Pul Yechish", callback_data: "withdraw_menu" }],
-      [{ text: "👥 Referal", callback_data: "referral_menu" }, { text: "❓ Yordam", callback_data: "help_menu" }],
-    ]}}
+    { parse_mode: "HTML", reply_markup: { inline_keyboard: keyboard }}
   );
 }
 
@@ -190,7 +194,8 @@ export async function startBot() {
       );
       return;
     }
-    await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance);
+    const isAdminUser = !ADMIN_ID || user.id === ADMIN_ID;
+    await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance, isAdminUser);
   });
 
   // Admin panel helper
@@ -672,7 +677,8 @@ export async function startBot() {
       await db.update(playersTable)
         .set({ channelVerified: true, updatedAt: new Date() })
         .where(eq(playersTable.telegramId, String(q.from.id)));
-      await mainMenu(chatId, q.from.first_name, p.balance);
+      const isAdminUser = !ADMIN_ID || q.from.id === ADMIN_ID;
+      await mainMenu(chatId, q.from.first_name, p.balance, isAdminUser);
       return;
     }
 
