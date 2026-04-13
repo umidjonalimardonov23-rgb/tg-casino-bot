@@ -10,7 +10,7 @@ const MULTIPLIERS = [1.3, 1.6, 2, 2.8, 3.5, 5, 6.5, 8, 9, 10];
 
 // Progressive difficulty: bombs per row (bottom → top)
 // Row 0 (1x) = easiest, Row 9 (10x) = hardest
-const BOMBS_PER_ROW = [1, 1, 2, 2, 2, 3, 3, 3, 4, 4];
+const BOMBS_PER_ROW = [1, 2, 2, 2, 3, 3, 3, 4, 4, 4];
 const DIFF_LABELS = ["Oson","Oson","O'rta","O'rta","O'rta","Qiyin","Qiyin","Qiyin","Juda Qiyin","Juda Qiyin"];
 const DIFF_COLORS = ["#4ade80","#4ade80","#fbbf24","#fbbf24","#fbbf24","#f97316","#f97316","#f97316","#f87171","#f87171"];
 
