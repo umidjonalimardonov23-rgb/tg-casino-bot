@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Copy, Check, Loader2 } from "lucide-react";
+import { useLocation } from "wouter";
+import { Copy, Check, Loader2, ArrowLeft } from "lucide-react";
 import { usePlayer } from "@/lib/player-context";
+import { useLang } from "@/lib/lang-context";
 import { createDepositRequest } from "@/lib/api";
 
 const CARD = "9860606756773093";
@@ -25,7 +27,9 @@ function fmtFull(n: number) { return n.toLocaleString(); }
 function fmtCard(c: string) { return c.replace(/(\d{4})(?=\d)/g, "$1  "); }
 
 export default function Deposit() {
+  const [, nav] = useLocation();
   const { player } = usePlayer();
+  const { t } = useLang();
   const [copied, setCopied] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [custom, setCustom] = useState("");
@@ -66,33 +70,48 @@ export default function Deposit() {
     <div className="min-h-screen flex flex-col relative overflow-hidden"
       style={{ background: "linear-gradient(160deg, #0f0a1e 0%, #1a0f2e 50%, #0f0a1e 100%)" }}>
 
-      {/* Orbs */}
       <div className="fixed pointer-events-none" style={{ top: -60, right: -40, width: 220, height: 220, borderRadius: "50%", background: "radial-gradient(circle, #7c3aed44 0%, transparent 70%)", filter: "blur(50px)" }} />
       <div className="fixed pointer-events-none" style={{ bottom: 60, left: -60, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle, #16a34a33 0%, transparent 70%)", filter: "blur(40px)" }} />
 
       <div className="relative z-10 flex flex-col min-h-screen">
 
-        {/* Top banner */}
-        <div className="px-4 pt-5 pb-3">
+        {/* Header with back button */}
+        <div className="flex items-center gap-3 px-4 pt-5 pb-3">
+          <button onClick={() => nav("/")}
+            className="w-10 h-10 rounded-2xl flex items-center justify-center active:scale-90 transition-transform shrink-0"
+            style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", boxShadow: "0 4px 0 rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)" }}>
+            <ArrowLeft className="w-4 h-4 text-white" />
+          </button>
+          <div>
+            <p className="text-white font-black text-lg">💳 {t.depositTitle}</p>
+            <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>{t.depositDesc}</p>
+          </div>
+        </div>
+
+        {/* Bonus banner */}
+        <div className="px-4 pb-3">
           <div className="rounded-2xl py-3.5 text-center relative overflow-hidden"
-            style={{ background: "linear-gradient(135deg, #166534, #15803d)", boxShadow: "0 4px 24px rgba(22,163,74,0.45)" }}>
-            <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 55%)" }} />
-            <p className="relative font-bold text-sm text-green-100">Har qanday to'ldirish uchun!</p>
+            style={{ background: "linear-gradient(145deg, #166534, #15803d)", boxShadow: "0 6px 0 #0d3d1e, 0 8px 24px rgba(22,163,74,0.4), inset 0 1px 0 rgba(255,255,255,0.2)" }}>
+            <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 55%)" }} />
+            <p className="relative font-bold text-sm text-green-100">{t.bonusNote}</p>
             <p className="relative font-black text-2xl text-white">🎁 +{BONUS}% BONUS</p>
           </div>
         </div>
 
         <div className="px-4 flex-1 overflow-y-auto pb-6">
 
-          {/* Card */}
+          {/* Card — 3D */}
           <div className="rounded-2xl p-4 mb-4 relative overflow-hidden"
-            style={{ background: "linear-gradient(135deg, #78350f, #92400e, #a16207)", border: "1px solid rgba(251,191,36,0.45)", boxShadow: "0 8px 28px rgba(180,83,9,0.35)" }}>
-            <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 55%)" }} />
-            <div className="absolute -right-6 -bottom-6 w-24 h-24 rounded-full" style={{ background: "radial-gradient(circle, rgba(251,191,36,0.15), transparent 70%)" }} />
-
+            style={{
+              background: "linear-gradient(145deg, #78350f, #92400e, #a16207)",
+              border: "1px solid rgba(251,191,36,0.45)",
+              boxShadow: "0 8px 0 #451a03, 0 12px 32px rgba(180,83,9,0.4), inset 0 1px 0 rgba(255,255,255,0.2)",
+            }}>
+            <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.12) 0%, transparent 55%)" }} />
+            <div className="absolute -right-6 -bottom-6 w-24 h-24 rounded-full pointer-events-none" style={{ background: "radial-gradient(circle, rgba(251,191,36,0.15), transparent 70%)" }} />
             <div className="relative">
               <p className="text-xs font-black tracking-widest mb-3" style={{ color: "rgba(251,191,36,0.7)" }}>
-                💳 TO'LOV KARTASI
+                💳 {t.cardNumber}
               </p>
               <div className="flex items-center gap-3 mb-3">
                 <p className="font-black text-lg tracking-wider text-white flex-1" style={{ fontFamily: "monospace", letterSpacing: "0.1em" }}>
@@ -111,14 +130,14 @@ export default function Deposit() {
                 <span className="text-lg">👤</span>
                 <span className="text-white font-bold">{HOLDER}</span>
               </div>
-              {copied && <p className="mt-2 text-xs font-semibold" style={{ color: "#34d399" }}>✅ Nusxa olindi!</p>}
+              {copied && <p className="mt-2 text-xs font-semibold" style={{ color: "#34d399" }}>✅ {t.copied}</p>}
             </div>
           </div>
 
           {/* Custom amount */}
-          <p className="text-xs font-black tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.3)" }}>MIQDOR KIRITING</p>
+          <p className="text-xs font-black tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.3)" }}>{t.manualAmount}</p>
           <div className="relative mb-2">
-            <input type="number" placeholder="Miqdorni o'zing kiriting..."
+            <input type="number" placeholder="100 000 UZS..."
               value={custom}
               onChange={(e) => { setCustom(e.target.value); setSelected(null); }}
               className="w-full rounded-2xl px-4 py-3.5 text-base font-bold focus:outline-none"
@@ -130,7 +149,7 @@ export default function Deposit() {
             )}
           </div>
 
-          <p className="text-xs mb-2" style={{ color: "rgba(255,255,255,0.35)" }}>yoki tanlang:</p>
+          <p className="text-xs mb-2" style={{ color: "rgba(255,255,255,0.35)" }}>{t.chooseAmount}:</p>
 
           {/* Preset grid */}
           <div className="grid grid-cols-3 gap-2 mb-4">
@@ -140,9 +159,9 @@ export default function Deposit() {
                 <button key={p.base} onClick={() => { setSelected(p.base); setCustom(""); }}
                   className="flex flex-col items-start px-3 py-3 rounded-2xl transition-all active:scale-95"
                   style={{
-                    background: isSel ? "linear-gradient(135deg, rgba(124,58,237,0.35), rgba(59,130,246,0.25))" : "rgba(255,255,255,0.05)",
+                    background: isSel ? "linear-gradient(145deg, rgba(124,58,237,0.4), rgba(59,130,246,0.3))" : "rgba(255,255,255,0.05)",
                     border: isSel ? "1px solid rgba(167,139,250,0.55)" : "1px solid rgba(255,255,255,0.08)",
-                    boxShadow: isSel ? "0 4px 16px rgba(124,58,237,0.3)" : "none",
+                    boxShadow: isSel ? "0 4px 0 rgba(0,0,0,0.3), 0 6px 16px rgba(124,58,237,0.3)" : "0 2px 0 rgba(0,0,0,0.2)",
                   }}>
                   <span className="font-black text-base text-white">{fmtShort(p.base)}</span>
                   <span className="text-xs font-bold" style={{ color: "#34d399" }}>+{fmtShort(p.bonus)}</span>
@@ -154,7 +173,7 @@ export default function Deposit() {
           {/* Summary */}
           {amount && amount >= 1000 && (
             <div className="rounded-2xl px-4 py-3.5 mb-4"
-              style={{ background: "rgba(124,58,237,0.1)", border: "1px solid rgba(124,58,237,0.25)" }}>
+              style={{ background: "rgba(124,58,237,0.1)", border: "1px solid rgba(124,58,237,0.25)", boxShadow: "0 4px 16px rgba(124,58,237,0.1)" }}>
               <div className="flex justify-between text-sm mb-1.5">
                 <span style={{ color: "rgba(255,255,255,0.5)" }}>To'lov:</span>
                 <span className="text-white font-bold">{fmtFull(amount)} UZS</span>
@@ -170,24 +189,17 @@ export default function Deposit() {
             </div>
           )}
 
-          {/* Instructions */}
+          {/* Steps */}
           <div className="rounded-2xl p-4 mb-4"
             style={{ background: "rgba(99,102,241,0.07)", border: "1px solid rgba(99,102,241,0.2)" }}>
             <p className="font-bold text-sm mb-3 flex items-center gap-2" style={{ color: "#a5b4fc" }}>
               📋 Qanday qilish kerak?
             </p>
             <div className="space-y-2.5">
-              {[
-                "Yuqoridagi kartaga pul o'tkaring",
-                "To'lov cheki (screenshot) oling",
-                "Botga borib chekni yuboring",
-                "Admin tasdiqlagach balans to'ldiriladi",
-              ].map((step, i) => (
+              {["Yuqoridagi kartaga pul o'tkaring","To'lov cheki (screenshot) oling","Botga borib chekni yuboring","Admin tasdiqlagach balans to'ldiriladi"].map((step, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0 mt-0.5"
-                    style={{ background: "rgba(99,102,241,0.3)", color: "#a5b4fc" }}>
-                    {i + 1}
-                  </span>
+                    style={{ background: "rgba(99,102,241,0.3)", color: "#a5b4fc" }}>{i + 1}</span>
                   <span className="text-sm" style={{ color: "rgba(255,255,255,0.55)" }}>{step}</span>
                 </div>
               ))}
@@ -212,7 +224,7 @@ export default function Deposit() {
             <button onClick={handleSend}
               disabled={loading || !amount || amount < 1000}
               className="w-full rounded-2xl font-black text-base flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-40"
-              style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)", boxShadow: "0 8px 28px rgba(124,58,237,0.5)", color: "white", padding: "18px 0" }}>
+              style={{ background: "linear-gradient(145deg, #2563eb, #7c3aed)", boxShadow: "0 8px 0 #1e3a8a, 0 10px 28px rgba(124,58,237,0.5)", color: "white", padding: "18px 0" }}>
               {loading
                 ? <><Loader2 className="w-5 h-5 animate-spin" /> Yuklanmoqda...</>
                 : "🤖 Botga O'tish va Chek Yuborish"
