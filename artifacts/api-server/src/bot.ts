@@ -88,6 +88,9 @@ async function getOrCreatePlayer(tgUser: TelegramBot.User) {
 
 const DEPOSIT_URL = APP_URL.endsWith("/") ? `${APP_URL}deposit` : `${APP_URL}/deposit`;
 
+// Track last main menu message ID per user so /start edits it instead of sending new
+const userMenuMsgId = new Map<number, number>();
+
 function mainMenuKeyboard(isAdmin: boolean): any[][] {
   const kb: any[][] = [
     [{ text: "🎮 O'YINNI BOSHLASH", web_app: { url: APP_URL } }],
@@ -109,9 +112,10 @@ async function mainMenu(chatId: number, name: string, balance: number, isAdmin =
     const rm = await bot!.sendMessage(chatId, "⌛", { reply_markup: { remove_keyboard: true } });
     await bot!.deleteMessage(chatId, rm.message_id);
   } catch {}
-  await bot!.sendMessage(chatId, mainMenuText(name, balance),
+  const sent = await bot!.sendMessage(chatId, mainMenuText(name, balance),
     { parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }}
   );
+  userMenuMsgId.set(chatId, sent.message_id);
 }
 
 async function editToMainMenu(chatId: number, msgId: number, name: string, balance: number, isAdmin = false) {
@@ -120,6 +124,7 @@ async function editToMainMenu(chatId: number, msgId: number, name: string, balan
       chat_id: chatId, message_id: msgId,
       parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }
     });
+    userMenuMsgId.set(chatId, msgId);
   } catch { /* message unchanged or deleted — ignore */ }
 }
 
@@ -247,6 +252,18 @@ export async function startBot() {
       return;
     }
     const isAdminUser = !ADMIN_ID || user.id === ADMIN_ID;
+    const existingMsgId = userMenuMsgId.get(msg.chat.id);
+    if (existingMsgId) {
+      // Try to edit the existing menu — if it fails (too old/deleted), send a new one
+      try {
+        await bot!.editMessageText(mainMenuText(user.first_name, freshPlayer.balance), {
+          chat_id: msg.chat.id, message_id: existingMsgId,
+          parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdminUser) }
+        });
+        userMenuMsgId.set(msg.chat.id, existingMsgId);
+        return;
+      } catch { /* message too old or deleted — fall through to send new */ }
+    }
     await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance, isAdminUser);
   });
 
