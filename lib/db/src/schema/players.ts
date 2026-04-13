@@ -24,6 +24,7 @@ export const playersTable = pgTable("players", {
   dailyBonusStreak: integer("daily_bonus_streak").notNull().default(0),
   referredBy: text("referred_by"),
   referralCount: integer("referral_count").notNull().default(0),
+  lastMenuMsgId: integer("last_menu_msg_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
