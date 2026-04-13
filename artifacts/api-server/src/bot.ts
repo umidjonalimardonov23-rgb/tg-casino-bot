@@ -846,6 +846,8 @@ export async function startBot() {
     // ◀️ Back to main menu
     if (data === "main_menu") {
       await bot!.answerCallbackQuery(q.id);
+      // Delete the sub-menu message so the chat stays clean
+      try { await bot!.deleteMessage(chatId, q.message.message_id); } catch {}
       const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(q.from.id)));
       const isAdminUser = !ADMIN_ID || q.from.id === ADMIN_ID;
       await mainMenu(chatId, q.from.first_name, p?.balance ?? 0, isAdminUser);
