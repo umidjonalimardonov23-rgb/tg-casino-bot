@@ -60,6 +60,10 @@ if (isProduction) {
   }
 }
 
-startBot().catch((err) => logger.error({ err }, "Bot start failed"));
+if (isProduction) {
+  startBot().catch((err) => logger.error({ err }, "Bot start failed"));
+} else {
+  logger.info("Bot polling disabled in development (use Railway for production bot)");
+}
 
 export default app;
