@@ -807,7 +807,15 @@ export async function startBot() {
     if (data === "howto") {
       await bot!.answerCallbackQuery(q.id);
       await bot!.sendMessage(chatId,
-        `📖 <b>Qanday O'ynaladi?</b>\n\n🍎 <b>Apple of Fortune</b> — Olma toping, ko'proq topsangiz ko'proq yutasiz!\n\n🎲 <b>Dice</b> — 2 zar yig'indisi 7 dan KO'P (x2.3), TENG (x5.8) yoki KAM (x2.3)\n\n✈️ <b>Aviator</b> — Koeffitsiyent oshganda "Cash Out" bosing!`,
+        `📖 <b>BARCHA O'YINLAR QOIDALARI</b>\n\n` +
+        `🍎 <b>Olma Omadi</b>\n  └ Grid ochib olmalar toping, x10 gacha\n\n` +
+        `🎲 <b>Zar (Dice)</b>\n  └ 7 dan KO'P x2.3 | TENG x5.8 | KAM x2.3\n\n` +
+        `✈️ <b>Aviator</b>\n  └ 70% kichik (1.1-2x), qulab tushishdan oldin oling!\n\n` +
+        `🎡 <b>Spin</b>\n  └ Tekin spin 24 soatda 1 ta | 30% yutish\n  └ 🍒 1K | ⭐ 2K | 💎 5K\n\n` +
+        `🃏 <b>Blackjack</b>\n  └ 21 ga yaqin qoling | BJ=x2.5 | Win=x2\n\n` +
+        `🎰 <b>Slot</b>\n  └ 777=x10 | 3 bir xil=x3 | 2 bir xil=x1.5\n\n` +
+        `🔢 <b>Toq-Juft (Parity)</b>\n  └ 1-90 son | JUFT/TOQ/KICHIK/KATTA = x2 | 50% ehtimol\n\n` +
+        `💡 <b>Depozit:</b> +20% bonus | <b>Yechish:</b> 100% wager kerak`,
         { parse_mode: "HTML" }
       );
       return;
