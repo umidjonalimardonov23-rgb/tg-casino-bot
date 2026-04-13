@@ -88,74 +88,19 @@ async function getOrCreatePlayer(tgUser: TelegramBot.User) {
 
 const DEPOSIT_URL = APP_URL.endsWith("/") ? `${APP_URL}deposit` : `${APP_URL}/deposit`;
 
-// Reply keyboard button labels
-const BTN_GAMES    = "🎮 O'YIN BO'LIMI";
-const BTN_BALANCE  = "💰 Balansim";
-const BTN_DEPOSIT  = "➕ To'ldirish";
-const BTN_WITHDRAW = "💸 Yechish";
-const BTN_REFERRAL = "👥 Referal";
-const BTN_RULES    = "📖 Qoidalar";
-const BTN_HELP     = "❓ Yordam";
-const BTN_ADMIN    = "🔧 ADMIN PANEL";
-
-function buildReplyKeyboard(isAdmin = false) {
-  const rows: any[][] = [
-    [{ text: BTN_GAMES }],
-    [{ text: BTN_BALANCE }, { text: BTN_DEPOSIT }],
-    [{ text: BTN_WITHDRAW }, { text: BTN_REFERRAL }],
-    [{ text: BTN_RULES }, { text: BTN_HELP }],
-  ];
-  if (isAdmin) rows.push([{ text: BTN_ADMIN }]);
-  return { keyboard: rows, resize_keyboard: true, persistent: true };
-}
-
 async function mainMenu(chatId: number, name: string, balance: number, isAdmin = false) {
+  const keyboard: any[][] = [
+    [{ text: "🎮 O'YINNI BOSHLASH", web_app: { url: APP_URL } }],
+    [{ text: "💰 Balansim", callback_data: "balance" }, { text: "📖 Qoidalar", callback_data: "howto" }],
+    [{ text: "➕ Hisob To'ldirish", web_app: { url: DEPOSIT_URL } }, { text: "💸 Pul Yechish", callback_data: "withdraw_menu" }],
+    [{ text: "👥 Referal", callback_data: "referral_menu" }, { text: "❓ Yordam", callback_data: "help_menu" }],
+  ];
+  if (isAdmin) {
+    keyboard.push([{ text: "🔧 ADMIN PANEL", callback_data: "admin_panel" }]);
+  }
   await bot!.sendMessage(chatId,
-    `🎮 <b>Salom, ${name}!</b>\n\n` +
-    `💰 Balansingiz: <b>${fmt(balance)} UZS</b>\n\n` +
-    `👇 Quyidagi menyudan tanlang:`,
-    { parse_mode: "HTML", reply_markup: buildReplyKeyboard(isAdmin) }
-  );
-}
-
-async function sendGamesMenu(chatId: number) {
-  await bot!.sendMessage(chatId,
-    `╔══════════════════╗\n` +
-    `║  🎰  O'YIN BO'LIMI  🎰  ║\n` +
-    `╚══════════════════╝\n\n` +
-    `🍎 <b>Apple of Fortune</b> — x10 gacha\n` +
-    `🎲 <b>Dice</b> — x5.8 gacha\n` +
-    `✈️ <b>Aviator</b> — ∞x gacha\n` +
-    `🎡 <b>Kunlik Spin</b> — Tekin!\n` +
-    `🃏 <b>Blackjack</b> — x2.5\n` +
-    `🎰 <b>Slots</b> — x50\n` +
-    `🔢 <b>Parity</b> — x20\n\n` +
-    `👇 O'yin tanlang yoki <b>O'YIN OYNASINI</b> oching:`,
-    {
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "🍎 Apple (x10)", web_app: { url: `${APP_URL}#/apple` } },
-            { text: "🎲 Dice (x5.8)", web_app: { url: `${APP_URL}#/dice` } },
-          ],
-          [
-            { text: "✈️ Aviator (∞x)", web_app: { url: `${APP_URL}#/aviator` } },
-            { text: "🎡 Spin (TEKIN)", web_app: { url: `${APP_URL}#/spin` } },
-          ],
-          [
-            { text: "🃏 Blackjack (x2.5)", web_app: { url: `${APP_URL}#/blackjack` } },
-            { text: "🎰 Slots (x50)", web_app: { url: `${APP_URL}#/slots` } },
-          ],
-          [
-            { text: "🔢 Parity (x20)", web_app: { url: `${APP_URL}#/parity` } },
-          ],
-          [
-            { text: "🌐 BARCHA O'YINLAR →", web_app: { url: APP_URL } },
-          ],
-        ],
-      },
-    }
+    `🎮 <b>Salom, ${name}!</b>\n\n💰 Balansingiz: <b>${fmt(balance)} UZS</b>\n\n👇 O'yinni boshlash uchun tugmani bosing:`,
+    { parse_mode: "HTML", reply_markup: { inline_keyboard: keyboard }}
   );
 }
 
@@ -502,105 +447,6 @@ export async function startBot() {
         return;
       }
     }
-
-    // ── Reply keyboard button handlers ──────────────────────────
-    if (text === BTN_GAMES) {
-      await sendGamesMenu(chatId);
-      return;
-    }
-    if (text === BTN_BALANCE) {
-      const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(userId)));
-      const wagerLeft = Math.max(0, (p?.wagerRequirement ?? 0) - (p?.totalWagered ?? 0));
-      await bot!.sendMessage(chatId,
-        `💰 <b>Hisobingiz</b>\n\n` +
-        `💵 Balans: <b>${fmt(p?.balance ?? 0)} UZS</b>\n` +
-        `🎮 O'yinlar: <b>${p?.gamesPlayed ?? 0}</b>\n` +
-        `🏆 Yutgan: <b>${fmt(p?.totalWon ?? 0)} UZS</b>\n` +
-        `📈 O'ynaldi: <b>${fmt(p?.totalWagered ?? 0)} UZS</b>\n` +
-        (wagerLeft > 0
-          ? `\n⚠️ Chiqarish uchun yana <b>${fmt(wagerLeft)} UZS</b> o'ynash kerak`
-          : `\n✅ Chiqarishga ruxsat bor`),
-        { parse_mode: "HTML" }
-      );
-      return;
-    }
-    if (text === BTN_DEPOSIT) {
-      await bot!.sendMessage(chatId,
-        `➕ <b>Hisob To'ldirish</b>\n\n🎁 Har qanday miqdorga <b>+${BONUS_PERCENT}% bonus</b>!\n\n💳 Karta: <code>${CARD_NUMBER}</code>\n👤 ${CARD_HOLDER}\n\nMiqdorni tanlang yoki o'zingiz kiriting:`,
-        { parse_mode: "HTML", reply_markup: { inline_keyboard: [
-          [{ text: "💵 10,000 UZS", callback_data: "dep_10000" }, { text: "💵 25,000 UZS", callback_data: "dep_25000" }],
-          [{ text: "💵 50,000 UZS", callback_data: "dep_50000" }, { text: "💵 100,000 UZS", callback_data: "dep_100000" }],
-          [{ text: "💵 250,000 UZS", callback_data: "dep_250000" }, { text: "💵 500,000 UZS", callback_data: "dep_500000" }],
-          [{ text: "✍️ O'zim yozaman", callback_data: "dep_custom" }],
-        ]}}
-      );
-      return;
-    }
-    if (text === BTN_WITHDRAW) {
-      const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(userId)));
-      if (!p) return;
-      const wagerLeft = Math.max(0, (p.wagerRequirement ?? 0) - (p.totalWagered ?? 0));
-      if (wagerLeft > 0) {
-        await bot!.sendMessage(chatId,
-          `⚠️ <b>Pul Yechish Mumkin Emas</b>\n\nYechish uchun <b>${fmt(wagerLeft)} UZS</b> ko'proq o'ynash kerak.\n\n📊 Wager: ${fmt(p.totalWagered)} / ${fmt(p.wagerRequirement)} UZS`,
-          { parse_mode: "HTML" }
-        );
-        return;
-      }
-      if (p.balance < 1000) {
-        await bot!.sendMessage(chatId, `❌ Balans yetarli emas. Minimal yechish: <b>1,000 UZS</b>`, { parse_mode: "HTML" });
-        return;
-      }
-      waitingForWithdrawAmount.add(userId);
-      await bot!.sendMessage(chatId,
-        `💸 <b>Pul Yechish</b>\n\n💵 Balans: <b>${fmt(p.balance)} UZS</b>\n\nYechmoqchi bo'lgan miqdorni kiriting:`,
-        { parse_mode: "HTML" }
-      );
-      return;
-    }
-    if (text === BTN_REFERRAL) {
-      const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(userId)));
-      const botUsername = (await bot!.getMe()).username;
-      const refLink = `https://t.me/${botUsername}?start=ref_${userId}`;
-      await bot!.sendMessage(chatId,
-        `👥 <b>Referal Tizimi</b>\n\n🔗 Sizning havolangiz:\n<code>${refLink}</code>\n\n` +
-        `👤 Taklif qilinganlar: <b>${p?.referralCount ?? 0} ta</b>\n💰 Har bir referal uchun: <b>1,000 UZS</b>\n\n` +
-        `📤 Havolani do'stlaringizga yuboring!`,
-        { parse_mode: "HTML", reply_markup: { inline_keyboard: [
-          [{ text: "📤 Ulashish", url: `https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent("1X Casino o'yinida ishtirok eting! 🎮")}` }],
-        ]}}
-      );
-      return;
-    }
-    if (text === BTN_RULES) {
-      await bot!.sendMessage(chatId,
-        `📖 <b>BARCHA O'YINLAR QOIDALARI</b>\n\n` +
-        `🍎 <b>Olma Omadi</b>\n  └ Grid ochib olmalar toping, x10 gacha\n\n` +
-        `🎲 <b>Zar (Dice)</b>\n  └ 7 dan KO'P x2.3 | TENG x5.8 | KAM x2.3\n\n` +
-        `✈️ <b>Aviator</b>\n  └ 70% kichik (1.1-2x), qulab tushishdan oldin oling!\n\n` +
-        `🎡 <b>Spin</b>\n  └ Tekin spin 24 soatda 1 ta | 30% yutish\n  └ 🍒 1K | ⭐ 2K | 💎 5K\n\n` +
-        `🃏 <b>Blackjack</b>\n  └ 21 ga yaqin qoling | BJ=x2.5 | Win=x2\n\n` +
-        `🎰 <b>Slot</b>\n  └ 777=x10 | 3 bir xil=x3 | 2 bir xil=x1.5\n\n` +
-        `🔢 <b>Parity</b>\n  └ KICHIK/KATTA=x2 | TENG=x20\n\n` +
-        `💡 <b>Depozit:</b> +20% bonus | <b>Yechish:</b> 100% wager kerak`,
-        { parse_mode: "HTML" }
-      );
-      return;
-    }
-    if (text === BTN_HELP) {
-      waitingForHelp.add(userId);
-      await bot!.sendMessage(chatId,
-        `❓ <b>Yordam</b>\n\nSavolingizni yozing, admin tez orada javob beradi:\n\n<i>Bekor qilish uchun /cancel</i>`,
-        { parse_mode: "HTML" }
-      );
-      return;
-    }
-    if (text === BTN_ADMIN) {
-      if (!ADMIN_ID || userId !== ADMIN_ID) return;
-      await sendAdminMenu(chatId);
-      return;
-    }
-    // ────────────────────────────────────────────────────────────
 
     // /cancel — clears all waiting states
     if (text === "/cancel") {
