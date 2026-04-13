@@ -843,6 +843,15 @@ export async function startBot() {
       return;
     }
 
+    // ◀️ Back to main menu
+    if (data === "main_menu") {
+      await bot!.answerCallbackQuery(q.id);
+      const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(q.from.id)));
+      const isAdminUser = !ADMIN_ID || q.from.id === ADMIN_ID;
+      await mainMenu(chatId, q.from.first_name, p?.balance ?? 0, isAdminUser);
+      return;
+    }
+
     // Balance
     if (data === "balance") {
       await bot!.answerCallbackQuery(q.id);
