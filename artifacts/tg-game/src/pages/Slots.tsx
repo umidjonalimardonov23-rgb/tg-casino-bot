@@ -11,15 +11,15 @@ const ALL    = ["🍒","🍊","🍋","🍇","🍉","🍓","⭐","💎","7️⃣"
 // Deterministic outcome first, then generate reels to match
 function spinReels(): { reels: [string,string,string]; outcome: "jackpot"|"three"|"two"|"miss" } {
   const r = Math.random();
-  if (r < 0.02) {
-    // 2% — Jackpot 777 = x10
+  if (r < 0.01) {
+    // 1% — Jackpot 777 = x10
     return { reels: ["7️⃣","7️⃣","7️⃣"], outcome: "jackpot" };
-  } else if (r < 0.17) {
-    // 15% — 3 of a kind fruit = x3
+  } else if (r < 0.08) {
+    // 7% — 3 of a kind fruit = x3
     const sym = FRUITS[Math.floor(Math.random() * FRUITS.length)];
     return { reels: [sym, sym, sym], outcome: "three" };
-  } else if (r < 0.62) {
-    // 45% — 2 of a kind = x1.5
+  } else if (r < 0.33) {
+    // 25% — 2 of a kind = x1.5
     const sym = ALL[Math.floor(Math.random() * ALL.length)];
     const others = ALL.filter(s => s !== sym);
     const diff = others[Math.floor(Math.random() * others.length)];
@@ -28,7 +28,7 @@ function spinReels(): { reels: [string,string,string]; outcome: "jackpot"|"three
     reels[pos] = diff;
     return { reels, outcome: "two" };
   } else {
-    // 38% — Miss
+    // 67% — Miss
     const s1 = ALL[Math.floor(Math.random() * ALL.length)];
     let s2 = ALL[Math.floor(Math.random() * ALL.length)];
     while (s2 === s1) s2 = ALL[Math.floor(Math.random() * ALL.length)];
