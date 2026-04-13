@@ -89,6 +89,12 @@ async function getOrCreatePlayer(tgUser: TelegramBot.User) {
 const DEPOSIT_URL = APP_URL.endsWith("/") ? `${APP_URL}deposit` : `${APP_URL}/deposit`;
 
 async function mainMenu(chatId: number, name: string, balance: number, isAdmin = false) {
+  // Remove any lingering reply keyboard first
+  try {
+    const rm = await bot!.sendMessage(chatId, "⌛", { reply_markup: { remove_keyboard: true } });
+    await bot!.deleteMessage(chatId, rm.message_id);
+  } catch {}
+
   const keyboard: any[][] = [
     [{ text: "🎮 O'YINNI BOSHLASH", web_app: { url: APP_URL } }],
     [{ text: "💰 Balansim", callback_data: "balance" }, { text: "📖 Qoidalar", callback_data: "howto" }],
