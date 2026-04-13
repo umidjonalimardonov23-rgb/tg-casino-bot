@@ -98,7 +98,7 @@ async function mainMenu(chatId: number, name: string, balance: number, isAdmin =
   const keyboard: any[][] = [
     [{ text: "🎮 O'YINNI BOSHLASH", web_app: { url: APP_URL } }],
     [{ text: "💰 Balansim", callback_data: "balance" }, { text: "📖 Qoidalar", callback_data: "howto" }],
-    [{ text: "➕ Hisob To'ldirish", web_app: { url: DEPOSIT_URL } }, { text: "💸 Pul Yechish", callback_data: "withdraw_menu" }],
+    [{ text: "➕ Hisob To'ldirish", callback_data: "deposit_menu" }, { text: "💸 Pul Yechish", callback_data: "withdraw_menu" }],
     [{ text: "👥 Referal", callback_data: "referral_menu" }, { text: "❓ Yordam", callback_data: "help_menu" }],
   ];
   if (isAdmin) {
@@ -172,6 +172,28 @@ export async function startBot() {
     await bot.deleteWebHook();
     await bot.startPolling();
     logger.info("Bot started (polling mode — development)");
+  }
+
+  // Set bot commands (shows in command list when user types /)
+  try {
+    await bot.setMyCommands([
+      { command: "start", description: "🎮 Botni ishga tushirish" },
+      { command: "menu",  description: "📋 Asosiy menyu" },
+      { command: "help",  description: "❓ Yordam" },
+    ]);
+  } catch {}
+
+  // Set persistent menu button (bottom-left button in chat — opens mini app directly)
+  if (APP_URL) {
+    try {
+      await fetch(`https://api.telegram.org/bot${TOKEN}/setChatMenuButton`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          menu_button: { type: "web_app", text: "🎮 O'YIN", web_app: { url: APP_URL } }
+        }),
+      });
+    } catch {}
   }
 
   // /start command (with referral support)
@@ -265,6 +287,24 @@ export async function startBot() {
       } catch {}
     }
   }
+
+  // /menu command — show main menu
+  bot.onText(/\/menu/, async (msg) => {
+    if (!msg.from) return;
+    const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(msg.from.id)));
+    if (!p) { await bot!.sendMessage(msg.chat.id, "Botni ishga tushirish uchun /start yuboring."); return; }
+    const isAdminUser = !ADMIN_ID || msg.from.id === ADMIN_ID;
+    await mainMenu(msg.chat.id, msg.from.first_name, p.balance, isAdminUser);
+  });
+
+  // /help command
+  bot.onText(/\/help/, async (msg) => {
+    if (!msg.from) return;
+    await bot!.sendMessage(msg.chat.id,
+      `❓ <b>Yordam</b>\n\nSavolingizni yozing, admin tez orada javob beradi:`,
+      { parse_mode: "HTML" }
+    );
+  });
 
   // /admin command — admin panel
   bot.onText(/\/admin/, async (msg) => {
