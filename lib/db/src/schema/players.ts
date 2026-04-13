@@ -18,7 +18,10 @@ export const playersTable = pgTable("players", {
   wagerRequirement: integer("wager_requirement").notNull().default(0),
   totalWagered: integer("total_wagered").notNull().default(0),
   channelVerified: boolean("channel_verified").notNull().default(false),
+  banned: boolean("banned").notNull().default(false),
   lastSpinAt: timestamp("last_spin_at"),
+  lastDailyBonus: timestamp("last_daily_bonus"),
+  dailyBonusStreak: integer("daily_bonus_streak").notNull().default(0),
   referredBy: text("referred_by"),
   referralCount: integer("referral_count").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -34,6 +37,23 @@ export const transactionsTable = pgTable("transactions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const promoCodesTable = pgTable("promo_codes", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  amount: integer("amount").notNull(),
+  maxUses: integer("max_uses").notNull().default(1),
+  usedCount: integer("used_count").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const promoUsesTable = pgTable("promo_uses", {
+  id: serial("id").primaryKey(),
+  codeId: integer("code_id").notNull().references(() => promoCodesTable.id),
+  telegramId: text("telegram_id").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const insertPlayerSchema = createInsertSchema(playersTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertTransactionSchema = createInsertSchema(transactionsTable).omit({ id: true, createdAt: true });
 
@@ -41,3 +61,5 @@ export type Player = typeof playersTable.$inferSelect;
 export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
 export type Transaction = typeof transactionsTable.$inferSelect;
 export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
+export type PromoCode = typeof promoCodesTable.$inferSelect;
+export type PromoUse = typeof promoUsesTable.$inferSelect;

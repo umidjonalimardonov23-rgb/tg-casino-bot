@@ -6,6 +6,9 @@ import Home from "@/pages/Home";
 import AppleOfFortune from "@/pages/AppleOfFortune";
 import Dice from "@/pages/Dice";
 import Aviator from "@/pages/Aviator";
+import Blackjack from "@/pages/Blackjack";
+import Slots from "@/pages/Slots";
+import Parity from "@/pages/Parity";
 import Deposit from "@/pages/Deposit";
 import Withdraw from "@/pages/Withdraw";
 import HowToPlay from "@/pages/HowToPlay";
@@ -24,6 +27,9 @@ function Router() {
       <Route path="/apple" component={AppleOfFortune} />
       <Route path="/dice" component={Dice} />
       <Route path="/aviator" component={Aviator} />
+      <Route path="/blackjack" component={Blackjack} />
+      <Route path="/slots" component={Slots} />
+      <Route path="/parity" component={Parity} />
       <Route path="/deposit" component={Deposit} />
       <Route path="/withdraw" component={Withdraw} />
       <Route path="/howtoplay" component={HowToPlay} />

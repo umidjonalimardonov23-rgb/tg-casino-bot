@@ -1,6 +1,6 @@
 import TelegramBot from "node-telegram-bot-api";
 import { eq, and, isNull, sql, desc } from "drizzle-orm";
-import { db, playersTable, depositRequestsTable, withdrawRequestsTable } from "@workspace/db";
+import { db, playersTable, depositRequestsTable, withdrawRequestsTable, promoCodesTable } from "@workspace/db";
 import { logger } from "./lib/logger";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
@@ -31,6 +31,10 @@ const waitingForSendId = new Set<number>();                    // admin waiting 
 const waitingForSendMsg = new Map<number, string>();           // admin -> targetId (waiting for message text)
 const waitingForAddbalId = new Set<number>();                  // admin waiting to type userId for balance
 const waitingForAddbalAmount = new Map<number, string>();      // admin -> targetId (waiting for amount)
+const waitingForBanId = new Set<number>();                     // admin waiting to type userId for ban/unban
+const waitingForPromoCode = new Set<number>();                 // admin waiting to type promo code name
+const waitingForPromoAmount = new Map<number, string>();       // admin -> code (waiting for amount)
+const waitingForPromoMaxUses = new Map<number, { code: string; amount: number }>(); // admin -> {code,amount}
 
 export async function notifyAdminWithdraw(opts: {
   reqId: number; telegramId: string; firstName: string; username: string | null;
@@ -233,6 +237,10 @@ export async function startBot() {
               [
                 { text: "💸 Yechimlarni ko'r", callback_data: "admin_withdrawals" },
               ],
+              [
+                { text: "🚫 Ban / Unban", callback_data: "admin_ban" },
+                { text: "🎫 Promo Kodlar", callback_data: "admin_promo" },
+              ],
             ],
           },
         }
@@ -423,21 +431,31 @@ export async function startBot() {
     const chatId = msg.chat.id;
     const text = msg.text.trim();
 
-    // /cancel
+    // Ban check (skip for admins)
+    const isAdminForBanCheck = !ADMIN_ID || userId === ADMIN_ID;
+    if (!isAdminForBanCheck) {
+      const [checkBan] = await db.select({ banned: playersTable.banned }).from(playersTable).where(eq(playersTable.telegramId, String(userId)));
+      if (checkBan?.banned) {
+        await bot!.sendMessage(chatId, "🚫 Hisobingiz bloklangan. Yordam uchun admin bilan bog'laning.");
+        return;
+      }
+    }
+
+    // /cancel — clears all waiting states
     if (text === "/cancel") {
       waitingForBroadcast.delete(userId);
       waitingForHelp.delete(userId);
       adminReplyTarget.delete(userId);
-      await bot!.sendMessage(chatId, "❌ Bekor qilindi.", { parse_mode: "HTML" });
-      return;
-    }
-
-    // Admin: cancel clears new states too
-    if (text === "/cancel") {
       waitingForSendId.delete(userId);
       waitingForSendMsg.delete(userId);
       waitingForAddbalId.delete(userId);
       waitingForAddbalAmount.delete(userId);
+      waitingForBanId.delete(userId);
+      waitingForPromoCode.delete(userId);
+      waitingForPromoAmount.delete(userId);
+      waitingForPromoMaxUses.delete(userId);
+      await bot!.sendMessage(chatId, "❌ Bekor qilindi.", { parse_mode: "HTML" });
+      return;
     }
 
     // Admin: send to specific user — step 1: got user ID
@@ -523,6 +541,90 @@ export async function startBot() {
           reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] }
         }
       );
+      return;
+    }
+
+    // Admin: ban/unban — got user ID
+    if (waitingForBanId.has(userId)) {
+      const targetId = text.replace(/\s/g, "");
+      if (!/^\d+$/.test(targetId)) {
+        await bot!.sendMessage(chatId, "❌ Noto'g'ri ID. Faqat raqam kiriting:\n<i>Bekor qilish: /cancel</i>", { parse_mode: "HTML" });
+        return;
+      }
+      waitingForBanId.delete(userId);
+      const [pl] = await db.select().from(playersTable).where(eq(playersTable.telegramId, targetId));
+      if (!pl) { await bot!.sendMessage(chatId, "❌ Foydalanuvchi topilmadi."); return; }
+      const newBanned = !pl.banned;
+      await db.update(playersTable).set({ banned: newBanned, updatedAt: new Date() }).where(eq(playersTable.telegramId, targetId));
+      const name = pl.username ? `@${pl.username}` : pl.firstName;
+      const statusText = newBanned ? "🚫 <b>BAN QILINDI</b>" : "✅ <b>BAN OLIB TASHLANDI</b>";
+      await bot!.sendMessage(chatId,
+        `${statusText}\n\n👤 ${name}\n🆔 <code>${targetId}</code>`,
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] } }
+      );
+      try {
+        const notifyText = newBanned
+          ? "🚫 Hisobingiz admin tomonidan bloklandi. Yordam uchun murojaat qiling."
+          : "✅ Hisobingiz admin tomonidan tiklandi. Yana o'yin o'ynashingiz mumkin!";
+        await bot!.sendMessage(Number(targetId), notifyText);
+      } catch {}
+      return;
+    }
+
+    // Admin: promo creation — step 1: got code name
+    if (waitingForPromoCode.has(userId)) {
+      const code = text.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (code.length < 3) {
+        await bot!.sendMessage(chatId, "❌ Kod kamida 3 ta belgi bo'lishi kerak (A-Z, 0-9).\n<i>Bekor qilish: /cancel</i>", { parse_mode: "HTML" });
+        return;
+      }
+      waitingForPromoCode.delete(userId);
+      waitingForPromoAmount.set(userId, code);
+      await bot!.sendMessage(chatId,
+        `✅ Kod: <code>${code}</code>\n\nBu kodni ishlatganda qancha UZS berilsin?`,
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
+
+    // Admin: promo creation — step 2: got amount
+    if (waitingForPromoAmount.has(userId)) {
+      const code = waitingForPromoAmount.get(userId)!;
+      const amount = Number(text.replace(/\s/g, ""));
+      if (!amount || isNaN(amount) || amount <= 0) {
+        await bot!.sendMessage(chatId, "❌ Noto'g'ri miqdor. Masalan: <code>10000</code>\n<i>Bekor qilish: /cancel</i>", { parse_mode: "HTML" });
+        return;
+      }
+      waitingForPromoAmount.delete(userId);
+      waitingForPromoMaxUses.set(userId, { code, amount });
+      await bot!.sendMessage(chatId,
+        `✅ Miqdor: <b>${fmt(amount)} UZS</b>\n\nBu kodni necha marta ishlatish mumkin? (raqam kiriting)`,
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
+
+    // Admin: promo creation — step 3: got maxUses
+    if (waitingForPromoMaxUses.has(userId)) {
+      const { code, amount } = waitingForPromoMaxUses.get(userId)!;
+      const maxUses = Number(text.replace(/\s/g, ""));
+      if (!maxUses || isNaN(maxUses) || maxUses <= 0) {
+        await bot!.sendMessage(chatId, "❌ Noto'g'ri son. Masalan: <code>10</code>\n<i>Bekor qilish: /cancel</i>", { parse_mode: "HTML" });
+        return;
+      }
+      waitingForPromoMaxUses.delete(userId);
+      try {
+        await db.insert(promoCodesTable).values({ code, amount, maxUses });
+        await bot!.sendMessage(chatId,
+          `✅ <b>Promo Kod Yaratildi!</b>\n\n🎫 Kod: <code>${code}</code>\n💰 Miqdor: <b>${fmt(amount)} UZS</b>\n📊 Limit: <b>${maxUses}</b> marta`,
+          { parse_mode: "HTML", reply_markup: { inline_keyboard: [
+            [{ text: "🎫 Promo Kodlar", callback_data: "admin_promo" }],
+            [{ text: "🔙 Admin panel", callback_data: "admin_panel" }],
+          ]}}
+        );
+      } catch {
+        await bot!.sendMessage(chatId, `❌ Xato: Bu kod allaqachon mavjud yoki boshqa xatolik yuz berdi.`);
+      }
       return;
     }
 
@@ -1149,6 +1251,47 @@ export async function startBot() {
       await bot!.answerCallbackQuery(q.id, { text: "Javobingizni yozing" });
       await bot!.sendMessage(chatId,
         `📩 <b>Javob yozing:</b>\n\nQuyidagi foydalanuvchiga javob yuboriladi: <code>${targetUserId}</code>`,
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
+
+    // Admin: ban/unban
+    if (data === "admin_ban") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      waitingForBanId.add(q.from.id);
+      await bot!.sendMessage(chatId,
+        `🚫 <b>Ban / Unban</b>\n\nBan yoki unban qilmoqchi bo'lgan foydalanuvchining Telegram ID sini yuboring:\n\n<i>Bekor qilish: /cancel</i>`,
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
+
+    // Admin: promo codes list
+    if (data === "admin_promo") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      const codes = await db.select().from(promoCodesTable).orderBy(desc(promoCodesTable.id)).limit(20);
+      const lines = codes.length === 0 ? "Hali promo-kodlar yo'q" : codes.map(c =>
+        `🎫 <code>${c.code}</code> — ${fmt(c.amount)} UZS\n   Limit: ${c.usedCount}/${c.maxUses} | ${c.active ? "✅ Faol" : "❌ O'chirilgan"}`
+      ).join("\n\n");
+      await bot!.sendMessage(chatId,
+        `🎫 <b>PROMO KODLAR</b>\n\n${lines}`,
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [
+          [{ text: "➕ Yangi Promo Kod", callback_data: "admin_promo_create" }],
+          [{ text: "🔙 Admin panel", callback_data: "admin_panel" }],
+        ]}}
+      );
+      return;
+    }
+
+    if (data === "admin_promo_create") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      waitingForPromoCode.add(q.from.id);
+      await bot!.sendMessage(chatId,
+        `🎫 <b>Yangi Promo Kod</b>\n\nKod nomini yuboring (faqat lotin harflari va raqamlar):\n\n<i>Masalan: SUMMER2024</i>\n<i>Bekor qilish: /cancel</i>`,
         { parse_mode: "HTML" }
       );
       return;

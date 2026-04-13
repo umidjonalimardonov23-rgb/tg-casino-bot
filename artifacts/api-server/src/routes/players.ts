@@ -225,6 +225,42 @@ router.get("/players/:telegramId/transactions", async (req, res): Promise<void> 
   })));
 });
 
+// Daily bonus
+router.post("/players/:telegramId/daily-bonus", async (req, res): Promise<void> => {
+  const { telegramId } = req.params;
+  const [player] = await db.select().from(playersTable).where(eq(playersTable.telegramId, telegramId));
+  if (!player) { res.status(404).json({ error: "Player not found" }); return; }
+
+  const now = new Date();
+  const lastBonus = player.lastDailyBonus;
+  if (lastBonus) {
+    const last = new Date(lastBonus);
+    const diffH = (now.getTime() - last.getTime()) / (1000 * 60 * 60);
+    if (diffH < 20) {
+      const hoursLeft = Math.ceil(20 - diffH);
+      res.json({ success: false, error: `Kunlik bonus ${hoursLeft} soatdan keyin olish mumkin` });
+      return;
+    }
+  }
+
+  const streakReset = lastBonus && (now.getTime() - new Date(lastBonus).getTime()) > 48 * 60 * 60 * 1000;
+  const newStreak = streakReset ? 1 : (player.dailyBonusStreak + 1);
+  const base = Math.floor(Math.random() * 4001) + 1000; // 1000-5000
+  const streakBonus = Math.min(newStreak - 1, 6) * 500;
+  const amount = base + streakBonus;
+
+  const [updated] = await db.update(playersTable).set({
+    balance: player.balance + amount,
+    lastDailyBonus: now,
+    dailyBonusStreak: newStreak,
+    updatedAt: now,
+  }).where(eq(playersTable.telegramId, telegramId)).returning();
+
+  await db.insert(transactionsTable).values({ playerId: player.id, type: "daily_bonus", amount, game: null });
+
+  res.json({ success: true, amount, streak: newStreak, balance: updated.balance });
+});
+
 function formatPlayer(p: typeof playersTable.$inferSelect) {
   return {
     id: p.id,
