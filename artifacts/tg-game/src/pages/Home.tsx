@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { usePlayer } from "@/lib/player-context";
 import { useLang } from "@/lib/lang-context";
+import { useTheme } from "@/lib/theme-context";
 import { Trophy, Wallet, Zap, Plus, ArrowDownCircle, Gift } from "lucide-react";
 
 const BASE = "/api";
@@ -24,6 +25,7 @@ export default function Home() {
   const [, nav] = useLocation();
   const { player, loading, refresh } = usePlayer();
   const { lang, t, setLang } = useLang();
+  const { theme, setTheme } = useTheme();
   const [showPromo, setShowPromo] = useState(false);
   const [promoCode, setPromoCode] = useState("");
   const [promoMsg, setPromoMsg] = useState("");
@@ -110,8 +112,22 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Right side: lang + rules */}
+            {/* Right side: theme + lang + rules */}
             <div className="flex items-center gap-2 relative">
+              {/* Theme toggle */}
+              <div className="flex gap-1">
+                {(["dark","light","black"] as const).map(th => (
+                  <button key={th} onClick={() => setTheme(th)}
+                    className="w-7 h-7 rounded-xl flex items-center justify-center text-sm active:scale-90 transition-transform"
+                    style={{
+                      background: theme === th ? "rgba(167,139,250,0.35)" : "rgba(167,139,250,0.1)",
+                      border: `1px solid ${theme === th ? "rgba(167,139,250,0.6)" : "rgba(167,139,250,0.2)"}`,
+                      fontSize: 13,
+                    }}>
+                    {th === "light" ? "☀️" : th === "black" ? "⬛" : "🌙"}
+                  </button>
+                ))}
+              </div>
               {/* Language switcher */}
               {showLang && <div className="fixed inset-0 z-40" onClick={() => setShowLang(false)} />}
               <div className="relative">
