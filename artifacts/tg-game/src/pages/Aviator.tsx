@@ -6,13 +6,13 @@ import GameHeader from "@/components/GameHeader";
 
 type Phase = "idle" | "countdown" | "flying" | "done";
 
-// 70% small (1.1-2.0), 20% medium (2.0-5.0), 8% big (5-15), 2% huge (15-50)
+// 80% small (1.1-1.7), 12% medium (1.7-3.5), 6% big (3.5-10), 2% huge (10-30)
 function randomCrash(): number {
   const r = Math.random();
-  if (r < 0.70) return parseFloat((1.10 + Math.random() * 0.90).toFixed(2));
-  if (r < 0.90) return parseFloat((2.00 + Math.random() * 3.00).toFixed(2));
-  if (r < 0.98) return parseFloat((5.00 + Math.random() * 10.0).toFixed(2));
-  return parseFloat((15.0 + Math.random() * 35.0).toFixed(2));
+  if (r < 0.80) return parseFloat((1.10 + Math.random() * 0.60).toFixed(2));
+  if (r < 0.92) return parseFloat((1.70 + Math.random() * 1.80).toFixed(2));
+  if (r < 0.98) return parseFloat((3.50 + Math.random() * 6.50).toFixed(2));
+  return parseFloat((10.0 + Math.random() * 20.0).toFixed(2));
 }
 
 export default function Aviator() {
