@@ -88,26 +88,39 @@ async function getOrCreatePlayer(tgUser: TelegramBot.User) {
 
 const DEPOSIT_URL = APP_URL.endsWith("/") ? `${APP_URL}deposit` : `${APP_URL}/deposit`;
 
+function mainMenuKeyboard(isAdmin: boolean): any[][] {
+  const kb: any[][] = [
+    [{ text: "🎮 O'YINNI BOSHLASH", web_app: { url: APP_URL } }],
+    [{ text: "💰 Balansim", callback_data: "balance" }, { text: "📖 Qoidalar", callback_data: "howto" }],
+    [{ text: "➕ Hisob To'ldirish", callback_data: "deposit_menu" }, { text: "💸 Pul Yechish", callback_data: "withdraw_menu" }],
+    [{ text: "👥 Referal", callback_data: "referral_menu" }, { text: "❓ Yordam", callback_data: "help_menu" }],
+  ];
+  if (isAdmin) kb.push([{ text: "🔧 ADMIN PANEL", callback_data: "admin_panel" }]);
+  return kb;
+}
+
+function mainMenuText(name: string, balance: number): string {
+  return `🎮 <b>Salom, ${name}!</b>\n\n💰 Balansingiz: <b>${fmt(balance)} UZS</b>\n\n👇 O'yinni boshlash uchun tugmani bosing:`;
+}
+
 async function mainMenu(chatId: number, name: string, balance: number, isAdmin = false) {
   // Remove any lingering reply keyboard first
   try {
     const rm = await bot!.sendMessage(chatId, "⌛", { reply_markup: { remove_keyboard: true } });
     await bot!.deleteMessage(chatId, rm.message_id);
   } catch {}
-
-  const keyboard: any[][] = [
-    [{ text: "🎮 O'YINNI BOSHLASH", web_app: { url: APP_URL } }],
-    [{ text: "💰 Balansim", callback_data: "balance" }, { text: "📖 Qoidalar", callback_data: "howto" }],
-    [{ text: "➕ Hisob To'ldirish", callback_data: "deposit_menu" }, { text: "💸 Pul Yechish", callback_data: "withdraw_menu" }],
-    [{ text: "👥 Referal", callback_data: "referral_menu" }, { text: "❓ Yordam", callback_data: "help_menu" }],
-  ];
-  if (isAdmin) {
-    keyboard.push([{ text: "🔧 ADMIN PANEL", callback_data: "admin_panel" }]);
-  }
-  await bot!.sendMessage(chatId,
-    `🎮 <b>Salom, ${name}!</b>\n\n💰 Balansingiz: <b>${fmt(balance)} UZS</b>\n\n👇 O'yinni boshlash uchun tugmani bosing:`,
-    { parse_mode: "HTML", reply_markup: { inline_keyboard: keyboard }}
+  await bot!.sendMessage(chatId, mainMenuText(name, balance),
+    { parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }}
   );
+}
+
+async function editToMainMenu(chatId: number, msgId: number, name: string, balance: number, isAdmin = false) {
+  try {
+    await bot!.editMessageText(mainMenuText(name, balance), {
+      chat_id: chatId, message_id: msgId,
+      parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }
+    });
+  } catch { /* message unchanged or deleted — ignore */ }
 }
 
 export async function notifyUserDepositCreated(telegramId: string, amount: number, bonus: number) {
@@ -843,14 +856,12 @@ export async function startBot() {
       return;
     }
 
-    // ◀️ Back to main menu
+    // ◀️ Back to main menu — edit in-place, no new message
     if (data === "main_menu") {
       await bot!.answerCallbackQuery(q.id);
-      // Delete the sub-menu message so the chat stays clean
-      try { await bot!.deleteMessage(chatId, q.message.message_id); } catch {}
       const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(q.from.id)));
       const isAdminUser = !ADMIN_ID || q.from.id === ADMIN_ID;
-      await mainMenu(chatId, q.from.first_name, p?.balance ?? 0, isAdminUser);
+      await editToMainMenu(chatId, q.message.message_id, q.from.first_name, p?.balance ?? 0, isAdminUser);
       return;
     }
 
@@ -859,18 +870,18 @@ export async function startBot() {
       await bot!.answerCallbackQuery(q.id);
       const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(q.from.id)));
       const wagerLeft = Math.max(0, (p?.wagerRequirement ?? 0) - (p?.totalWagered ?? 0));
-      await bot!.sendMessage(chatId,
+      try { await bot!.editMessageText(
         `💰 <b>Hisobingiz</b>\n\n💵 Balans: <b>${fmt(p?.balance ?? 0)} UZS</b>\n🎮 O'yinlar: <b>${p?.gamesPlayed ?? 0}</b>\n🏆 Yutgan: <b>${fmt(p?.totalWon ?? 0)} UZS</b>\n📈 O'ynaldi: <b>${fmt(p?.totalWagered ?? 0)} UZS</b>\n` +
         (wagerLeft > 0 ? `\n⚠️ Chiqarish uchun yana <b>${fmt(wagerLeft)} UZS</b> o'ynash kerak` : `\n✅ Chiqarishga ruxsat bor`),
-        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
-      );
+        { chat_id: chatId, message_id: q.message.message_id, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
+      ); } catch {}
       return;
     }
 
     // How to
     if (data === "howto") {
       await bot!.answerCallbackQuery(q.id);
-      await bot!.sendMessage(chatId,
+      try { await bot!.editMessageText(
         `📖 <b>BARCHA O'YINLAR QOIDALARI</b>\n\n` +
         `🍎 <b>Olma Omadi</b>\n  └ Har qatorda olmalarni toping, bomba topmasdan yuqoriga chiqing\n\n` +
         `🎲 <b>Zar (Dice)</b>\n  └ 7 dan KO'P x2.3 | TENG 7 x5.8 | 7 dan KAM x2.3\n\n` +
@@ -880,24 +891,24 @@ export async function startBot() {
         `🎰 <b>Slot</b>\n  └ 777=x10 | 3 bir xil=x3 | 2 bir xil=x1.5\n\n` +
         `🔢 <b>Toq-Juft (Parity)</b>\n  └ 1-90 son | JUFT/TOQ/KICHIK/KATTA = x2\n\n` +
         `💡 <b>Depozit:</b> +20% bonus | <b>Yechish:</b> 100% wager kerak`,
-        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
-      );
+        { chat_id: chatId, message_id: q.message.message_id, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
+      ); } catch {}
       return;
     }
 
     // Deposit menu
     if (data === "deposit_menu") {
       await bot!.answerCallbackQuery(q.id);
-      await bot!.sendMessage(chatId,
+      try { await bot!.editMessageText(
         `➕ <b>Hisob To'ldirish</b>\n\n🎁 Har qanday miqdorga <b>+${BONUS_PERCENT}% bonus</b>!\n\n💳 Karta: <code>${CARD_NUMBER}</code>\n👤 ${CARD_HOLDER}\n\nMiqdorni tanlang yoki o'zingiz kiriting:`,
-        { parse_mode: "HTML", reply_markup: { inline_keyboard: [
+        { chat_id: chatId, message_id: q.message.message_id, parse_mode: "HTML", reply_markup: { inline_keyboard: [
           [{ text: "💵 10,000 UZS", callback_data: "dep_10000" }, { text: "💵 25,000 UZS", callback_data: "dep_25000" }],
           [{ text: "💵 50,000 UZS", callback_data: "dep_50000" }, { text: "💵 100,000 UZS", callback_data: "dep_100000" }],
           [{ text: "💵 250,000 UZS", callback_data: "dep_250000" }, { text: "💵 500,000 UZS", callback_data: "dep_500000" }],
           [{ text: "✍️ O'zim yozaman", callback_data: "dep_custom" }],
           [{ text: "◀️ Ortga", callback_data: "main_menu" }],
         ]}}
-      );
+      ); } catch {}
       return;
     }
 
@@ -965,16 +976,17 @@ export async function startBot() {
       const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(q.from.id)));
       if (!p) return;
       const wagerLeft = Math.max(0, p.wagerRequirement - p.totalWagered);
+      const msgId = q.message.message_id;
       if (wagerLeft > 0) {
-        await bot!.sendMessage(chatId,
+        try { await bot!.editMessageText(
           `💸 <b>Pul Yechish</b>\n\n⚠️ <b>Shart bajarilmagan!</b>\n\n• Kerakli: ${fmt(p.wagerRequirement)} UZS\n• O'ynaldi: ${fmt(p.totalWagered)} UZS\n• Qolgan: <b>${fmt(wagerLeft)} UZS</b>\n\n💡 Depozit miqdorini 100% o'ynasangiz pul yechi olasiz!`,
-          { parse_mode: "HTML" }
-        );
+          { chat_id: chatId, message_id: msgId, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
+        ); } catch {}
         return;
       }
-      await bot!.sendMessage(chatId,
+      try { await bot!.editMessageText(
         `💸 <b>Pul Yechish</b>\n\n💰 Balans: <b>${fmt(p.balance)} UZS</b>\n\nMiqdorni tanlang:`,
-        { parse_mode: "HTML", reply_markup: { inline_keyboard: [
+        { chat_id: chatId, message_id: msgId, parse_mode: "HTML", reply_markup: { inline_keyboard: [
           [{ text: `💵 25%  — ${fmt(Math.floor(p.balance*0.25))} UZS`, callback_data: `wd_${Math.floor(p.balance*0.25)}` }],
           [{ text: `💵 50%  — ${fmt(Math.floor(p.balance*0.50))} UZS`, callback_data: `wd_${Math.floor(p.balance*0.50)}` }],
           [{ text: `💵 75%  — ${fmt(Math.floor(p.balance*0.75))} UZS`, callback_data: `wd_${Math.floor(p.balance*0.75)}` }],
@@ -982,7 +994,7 @@ export async function startBot() {
           [{ text: "✍️ O'zim yozaman", callback_data: "wd_custom" }],
           [{ text: "◀️ Ortga", callback_data: "main_menu" }],
         ]}}
-      );
+      ); } catch {}
       return;
     }
 
@@ -1113,7 +1125,7 @@ export async function startBot() {
       const refLink = `https://t.me/${botInfo.username}?start=ref_${q.from.id}`;
       const count = p?.referralCount ?? 0;
       const earned = count * 1000;
-      await bot!.sendMessage(chatId,
+      try { await bot!.editMessageText(
         `👥 <b>REFERAL DASTURI</b>\n\n` +
         `🎁 Har bir do'stingiz uchun: <b>+1 000 UZS</b>\n\n` +
         `📊 Sizning natijangiz:\n` +
@@ -1121,8 +1133,8 @@ export async function startBot() {
         `💰 Jami topganingiz: <b>${fmt(earned)} UZS</b>\n\n` +
         `🔗 <b>Sizning havola:</b>\n<code>${refLink}</code>\n\n` +
         `📲 Havolani do'stingizga yuboring. U ro'yxatdan o'tgach, sizga <b>1 000 UZS</b> tushadi!`,
-        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
-      );
+        { chat_id: chatId, message_id: q.message.message_id, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
+      ); } catch {}
       return;
     }
 
