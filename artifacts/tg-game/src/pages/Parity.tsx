@@ -8,20 +8,22 @@ import GameHeader from "@/components/GameHeader";
 type BetType = "small" | "big" | "exact";
 type Phase = "idle" | "spin1" | "pick" | "spin2" | "result";
 
+const tg = (window as any).Telegram?.WebApp;
+
 export default function Parity() {
   const { player, refresh } = usePlayer();
   const { t } = useLang();
   const { theme, ts } = useTheme();
   const [betInput, setBetInput] = useState("2000");
   const [betType, setBetType] = useState<BetType | null>(null);
-  const [exactNum, setExactNum] = useState<number>(1);   // number chosen for TENG
+  const [exactNum, setExactNum] = useState<number>(1);
   const [phase, setPhase] = useState<Phase>("idle");
   const [finalNum, setFinalNum] = useState<number | null>(null);
   const [displayNum, setDisplayNum] = useState<number | null>(null);
   const [won, setWon] = useState(false);
   const [prize, setPrize] = useState(0);
   const [saving, setSaving] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lockedBet = useRef(0);
 
   const activeBet = Math.max(Number(betInput) || 2000, 2000);
@@ -38,21 +40,19 @@ export default function Parity() {
   }
 
   function clearTimer() {
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
   }
 
-  function runSpin(target: number, totalTicks: number, ms: number, slowAt: number, onDone: () => void) {
-    let i = 0;
-    timerRef.current = setInterval(() => {
-      i++;
-      if (i < totalTicks) {
-        setDisplayNum(Math.floor(Math.random() * 90) + 1);
-      } else {
-        clearTimer();
-        setDisplayNum(target);
-        onDone();
-      }
-    }, i < slowAt ? ms : ms * 2);
+  // Recursive setTimeout spin for variable speed
+  function spinLoop(target: number, remaining: number, ms: number, slowAt: number, onDone: () => void) {
+    if (remaining <= 0) {
+      setDisplayNum(target);
+      onDone();
+      return;
+    }
+    setDisplayNum(Math.floor(Math.random() * 90) + 1);
+    const nextMs = remaining > slowAt ? ms : remaining > 3 ? ms * 2 : ms * 4;
+    timerRef.current = setTimeout(() => spinLoop(target, remaining - 1, ms, slowAt, onDone), nextMs);
   }
 
   const startGame = useCallback(() => {
@@ -64,19 +64,9 @@ export default function Parity() {
     setBetType(null);
     setPhase("spin1");
 
-    // First spin: fast random numbers → stop at final
-    let i = 0;
-    const TOTAL = 28;
-    timerRef.current = setInterval(() => {
-      i++;
-      if (i < TOTAL) {
-        setDisplayNum(Math.floor(Math.random() * 90) + 1);
-      } else {
-        clearTimer();
-        setDisplayNum(final);
-        setTimeout(() => setPhase("pick"), 350);
-      }
-    }, i < 20 ? 75 : 140);
+    spinLoop(final, 26, 75, 8, () => {
+      timerRef.current = setTimeout(() => setPhase("pick"), 350);
+    });
   }, [player, activeBet, phase]);
 
   function pickBet(type: BetType, chosenExact?: number) {
@@ -84,36 +74,26 @@ export default function Parity() {
     setBetType(type);
     setPhase("spin2");
 
-    // Second spin: shorter
-    let i = 0;
-    const TOTAL = 18;
-    timerRef.current = setInterval(() => {
-      i++;
-      if (i < TOTAL) {
-        setDisplayNum(Math.floor(Math.random() * 90) + 1);
-      } else {
-        clearTimer();
+    const picked = chosenExact ?? exactNum;
+    spinLoop(finalNum!, 18, 80, 6, () => {
+      timerRef.current = setTimeout(() => {
         const fn = finalNum!;
-        setDisplayNum(fn);
+        let isWin = false;
+        if (type === "small") isWin = fn <= 45;
+        else if (type === "big") isWin = fn >= 46;
+        else if (type === "exact") isWin = fn === picked;
 
-        setTimeout(() => {
-          let isWin = false;
-          if (type === "small") isWin = fn <= 45;
-          else if (type === "big") isWin = fn >= 46;
-          else if (type === "exact") isWin = fn === (chosenExact ?? exactNum);
-
-          const mult = type === "exact" ? 20 : 2;
-          const winAmt = isWin ? lockedBet.current * mult : 0;
-          setWon(isWin);
-          setPrize(winAmt);
-          setPhase("result");
-          setSaving(true);
-          placeBet(player!.telegramId, {
-            amount: lockedBet.current, game: "parity", won: isWin, winAmount: winAmt,
-          }).then(() => refresh()).catch(() => {}).finally(() => setSaving(false));
-        }, 200);
-      }
-    }, 85);
+        const mult = type === "exact" ? 20 : 2;
+        const winAmt = isWin ? lockedBet.current * mult : 0;
+        setWon(isWin);
+        setPrize(winAmt);
+        setPhase("result");
+        setSaving(true);
+        placeBet(player!.telegramId, {
+          amount: lockedBet.current, game: "parity", won: isWin, winAmount: winAmt,
+        }).then(() => refresh()).catch(() => {}).finally(() => setSaving(false));
+      }, 200);
+    });
   }
 
   function playAgain() {
@@ -126,37 +106,33 @@ export default function Parity() {
     setPrize(0);
   }
 
+  function goToBot() {
+    try { tg?.close(); } catch {}
+  }
+
   useEffect(() => () => clearTimer(), []);
 
   const numIsBig = finalNum !== null && finalNum >= 46;
-  const selectedLabel =
-    betType === "small" ? `⬇️ ${t.small}` :
-    betType === "big"   ? `⬆️ ${t.big}` :
-    betType === "exact" ? `🎯 TENG (${exactNum})` : "";
-
-  // Number box color
   const isSpinning = phase === "spin1" || phase === "spin2";
+
   const numBg =
-    isSpinning       ? "linear-gradient(145deg,#312e81,#4c1d95)" :
-    phase === "idle" ? (isLight ? "rgba(99,102,241,0.1)" : "rgba(255,255,255,0.06)") :
-    phase === "result" && finalNum !== null
-      ? (betType === "exact"
-          ? (won ? "linear-gradient(145deg,#064e3b,#059669)" : "linear-gradient(145deg,#7f1d1d,#dc2626)")
-          : (numIsBig ? "linear-gradient(145deg,#78350f,#d97706)" : "linear-gradient(145deg,#064e3b,#059669)"))
-      : (numIsBig ? "linear-gradient(145deg,#78350f,#d97706)" : "linear-gradient(145deg,#064e3b,#059669)");
+    isSpinning         ? "linear-gradient(145deg,#312e81,#4c1d95)" :
+    phase === "idle"   ? (isLight ? "rgba(99,102,241,0.1)" : "rgba(255,255,255,0.06)") :
+    phase === "pick"   ? (numIsBig ? "linear-gradient(145deg,#78350f,#d97706)" : "linear-gradient(145deg,#064e3b,#059669)") :
+    /* result/spin2 */   (numIsBig ? "linear-gradient(145deg,#78350f,#d97706)" : "linear-gradient(145deg,#064e3b,#059669)");
   const numBorder =
-    isSpinning       ? "#a78bfa88" :
-    phase === "idle" ? (isLight ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.1)") :
-    numIsBig ? "#fbbf24aa" : "#4ade80aa";
+    isSpinning         ? "#a78bfa88" :
+    phase === "idle"   ? (isLight ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.1)") :
+    numIsBig           ? "#fbbf24aa" : "#4ade80aa";
   const numShadow =
-    isSpinning       ? "0 8px 0 #1e1b4b, 0 10px 30px rgba(139,92,246,0.5)" :
-    phase === "idle" ? "0 4px 0 rgba(0,0,0,0.1)" :
-    numIsBig ? "0 8px 0 #3d1f00, 0 10px 30px rgba(217,119,6,0.6)" :
-               "0 8px 0 #022c22, 0 10px 30px rgba(5,150,105,0.6)";
+    isSpinning         ? "0 8px 0 #1e1b4b, 0 10px 30px rgba(139,92,246,0.5)" :
+    phase === "idle"   ? "0 4px 0 rgba(0,0,0,0.1)" :
+    numIsBig           ? "0 8px 0 #3d1f00, 0 10px 30px rgba(217,119,6,0.6)" :
+                         "0 8px 0 #022c22, 0 10px 30px rgba(5,150,105,0.6)";
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: ts.bg }}>
-      <GameHeader title={`🔢 ${t.parityTitle}`} subtitle="1-90 son | KICHIK/KATTA x2 | TENG x20" />
+      <GameHeader title={`🔢 ${t.parityTitle}`} subtitle="1-90 son | x2 | x20" hideTheme />
 
       <div className="flex-1 px-4 pb-6 flex flex-col gap-4">
 
@@ -190,14 +166,12 @@ export default function Parity() {
             </span>
           </div>
 
-          {/* KICHIK / KATTA label after first spin */}
-          {(phase === "pick" || phase === "result") && finalNum !== null && (
-            <div className="flex gap-2">
-              <span className="px-4 py-1.5 rounded-full text-sm font-black"
-                style={{ background: "rgba(255,255,255,0.1)", color: numIsBig ? "#fbbf24" : "#4ade80" }}>
-                {numIsBig ? `⬆️ ${t.big}` : `⬇️ ${t.small}`} ({finalNum})
-              </span>
-            </div>
+          {/* KICHIK / KATTA badge after first spin */}
+          {(phase === "pick" || phase === "spin2" || phase === "result") && finalNum !== null && (
+            <span className="px-4 py-1.5 rounded-full text-sm font-black"
+              style={{ background: "rgba(255,255,255,0.1)", color: numIsBig ? "#fbbf24" : "#4ade80" }}>
+              {numIsBig ? "⬆️" : "⬇️"} {finalNum}
+            </span>
           )}
 
           {/* Win / Lose */}
@@ -207,9 +181,8 @@ export default function Parity() {
                 style={{ color: won ? "#4ade80" : "#f87171", textShadow: won ? "0 0 24px #4ade8088" : "0 0 16px #f8717166" }}>
                 {won ? "🎉 YUTDINGIZ!" : "😔 YUTQAZDINGIZ"}
               </p>
-              <p className="text-xs mt-1" style={{ color: ts.textSub }}>Tanlov: {selectedLabel}</p>
               {won && (
-                <p className="font-bold text-sm mt-1" style={{ color: isLight ? "#059669" : "white" }}>
+                <p className="font-bold text-lg mt-1" style={{ color: isLight ? "#059669" : "white" }}>
                   +{prize.toLocaleString()} UZS
                 </p>
               )}
@@ -217,76 +190,83 @@ export default function Parity() {
           )}
         </div>
 
-        {/* ── PICK phase: 3 buttons ── */}
+        {/* ── PICK phase: 3 buttons — order: KICHIK | TENG | KATTA ── */}
         {phase === "pick" && (
           <div className="flex flex-col gap-3">
-            {/* KICHIK + KATTA side by side */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-2">
+              {/* KICHIK */}
               <button onClick={() => pickBet("small")}
-                className="rounded-2xl py-6 text-center active:scale-95 transition-all relative overflow-hidden"
+                className="rounded-2xl py-5 text-center active:scale-95 transition-all relative overflow-hidden"
                 style={{ background: "linear-gradient(145deg,#064e3b,#059669)", border: "2px solid #4ade8099", boxShadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(5,150,105,0.5)" }}>
                 <div className="absolute inset-0 pointer-events-none"
                   style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.12) 0%,transparent 50%)" }} />
-                <p className="font-black text-2xl relative">⬇️</p>
-                <p className="font-black text-xl mt-1 relative" style={{ color: "#4ade80" }}>{t.small}</p>
-                <p className="text-sm mt-1 relative" style={{ color: "rgba(255,255,255,0.6)" }}>1–45 • x2</p>
+                <p className="font-black text-3xl relative">⬇️</p>
+                <p className="font-black text-sm mt-1 relative" style={{ color: "#4ade80" }}>x2</p>
               </button>
 
+              {/* TENG (middle) */}
+              <button onClick={() => pickBet("exact", exactNum)}
+                className="rounded-2xl py-5 text-center active:scale-95 transition-all relative overflow-hidden"
+                style={{ background: "linear-gradient(145deg,#1a0533,#3b0764)", border: "2px solid #c084fc99", boxShadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(168,85,247,0.5)" }}>
+                <div className="absolute inset-0 pointer-events-none"
+                  style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.1) 0%,transparent 50%)" }} />
+                <p className="font-black text-3xl relative">🎯</p>
+                <p className="font-black text-sm mt-1 relative" style={{ color: "#c084fc" }}>x20</p>
+              </button>
+
+              {/* KATTA */}
               <button onClick={() => pickBet("big")}
-                className="rounded-2xl py-6 text-center active:scale-95 transition-all relative overflow-hidden"
+                className="rounded-2xl py-5 text-center active:scale-95 transition-all relative overflow-hidden"
                 style={{ background: "linear-gradient(145deg,#78350f,#d97706)", border: "2px solid #fbbf2499", boxShadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(217,119,6,0.5)" }}>
                 <div className="absolute inset-0 pointer-events-none"
                   style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.12) 0%,transparent 50%)" }} />
-                <p className="font-black text-2xl relative">⬆️</p>
-                <p className="font-black text-xl mt-1 relative" style={{ color: "#fbbf24" }}>{t.big}</p>
-                <p className="text-sm mt-1 relative" style={{ color: "rgba(255,255,255,0.6)" }}>46–90 • x2</p>
+                <p className="font-black text-3xl relative">⬆️</p>
+                <p className="font-black text-sm mt-1 relative" style={{ color: "#fbbf24" }}>x2</p>
               </button>
             </div>
 
-            {/* TENG — full width with number picker */}
+            {/* TENG number picker */}
             <div className="rounded-2xl p-4 relative overflow-hidden"
-              style={{ background: "linear-gradient(145deg,#1a0533,#3b0764)", border: "2px solid #c084fc99", boxShadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(168,85,247,0.5)" }}>
+              style={{ background: "linear-gradient(145deg,#1a0533,#3b0764)", border: "2px solid #c084fc55", boxShadow: "0 4px 16px rgba(168,85,247,0.3)" }}>
               <div className="absolute inset-0 pointer-events-none"
-                style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.1) 0%,transparent 50%)" }} />
+                style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.08) 0%,transparent 50%)" }} />
               <div className="relative flex items-center justify-between mb-3">
-                <div>
-                  <p className="font-black text-xl" style={{ color: "#c084fc" }}>🎯 TENG</p>
-                  <p className="text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>Aniq son • x20</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>Yutish:</p>
-                  <p className="font-black text-lg" style={{ color: "#c084fc" }}>
-                    {(lockedBet.current * 20).toLocaleString()} UZS
-                  </p>
-                </div>
+                <p className="font-black text-base" style={{ color: "#c084fc" }}>
+                  🎯 TENG — aniq son tanlang
+                </p>
+                <p className="font-black text-base" style={{ color: "#c084fc" }}>
+                  {(lockedBet.current * 20).toLocaleString()} UZS
+                </p>
               </div>
 
-              {/* Number picker 1-90 */}
+              {/* Number stepper */}
               <div className="relative flex items-center gap-3 mb-3">
-                <button onClick={() => setExactNum(n => Math.max(1, n - 1))}
-                  className="w-10 h-10 rounded-xl font-black text-xl active:scale-90 flex-shrink-0"
-                  style={{ background: "rgba(192,132,252,0.2)", color: "#c084fc", border: "1px solid #c084fc55" }}>
+                <button
+                  onClick={() => setExactNum(n => Math.max(1, n - 1))}
+                  className="w-12 h-12 rounded-xl font-black text-2xl active:scale-90 transition-transform flex items-center justify-center flex-shrink-0"
+                  style={{ background: "rgba(192,132,252,0.25)", color: "#c084fc", border: "1.5px solid #c084fc55" }}>
                   −
                 </button>
-                <div className="flex-1 rounded-xl py-3 text-center font-black text-2xl relative"
-                  style={{ background: "rgba(0,0,0,0.3)", color: "#c084fc", border: "1px solid #c084fc55" }}>
+                <div className="flex-1 rounded-xl py-3 text-center font-black text-3xl"
+                  style={{ background: "rgba(0,0,0,0.4)", color: "#c084fc", border: "1.5px solid #c084fc55" }}>
                   {exactNum}
                 </div>
-                <button onClick={() => setExactNum(n => Math.min(90, n + 1))}
-                  className="w-10 h-10 rounded-xl font-black text-xl active:scale-90 flex-shrink-0"
-                  style={{ background: "rgba(192,132,252,0.2)", color: "#c084fc", border: "1px solid #c084fc55" }}>
+                <button
+                  onClick={() => setExactNum(n => Math.min(90, n + 1))}
+                  className="w-12 h-12 rounded-xl font-black text-2xl active:scale-90 transition-transform flex items-center justify-center flex-shrink-0"
+                  style={{ background: "rgba(192,132,252,0.25)", color: "#c084fc", border: "1.5px solid #c084fc55" }}>
                   +
                 </button>
               </div>
 
-              {/* Quick numbers */}
+              {/* Quick number grid */}
               <div className="grid grid-cols-9 gap-1 mb-3">
                 {[1,10,20,30,40,50,60,70,80,90].map(n => (
                   <button key={n} onClick={() => setExactNum(n)}
-                    className="rounded-lg py-1 text-xs font-bold active:scale-95"
+                    className="rounded-lg py-1 text-xs font-bold active:scale-95 transition-transform"
                     style={{
                       background: exactNum === n ? "rgba(192,132,252,0.4)" : "rgba(192,132,252,0.1)",
-                      color: exactNum === n ? "#c084fc" : "rgba(255,255,255,0.5)",
+                      color: exactNum === n ? "#c084fc" : "rgba(255,255,255,0.45)",
                       border: exactNum === n ? "1px solid #c084fc88" : "1px solid transparent",
                     }}>
                     {n}
@@ -295,9 +275,9 @@ export default function Parity() {
               </div>
 
               <button onClick={() => pickBet("exact", exactNum)}
-                className="w-full py-3 rounded-xl font-black text-base active:scale-95"
+                className="w-full py-3 rounded-xl font-black text-base active:scale-95 transition-transform"
                 style={{ background: "linear-gradient(145deg,#7e22ce,#9333ea)", color: "#f3e8ff", boxShadow: "0 3px 0 #3b0764" }}>
-                🎯 TENG TANLASH ({exactNum})
+                🎯 {exactNum} TANLASH
               </button>
             </div>
           </div>
@@ -306,28 +286,22 @@ export default function Parity() {
         {/* ── IDLE phase ── */}
         {phase === "idle" && (
           <>
-            {/* Info cards */}
+            {/* Info cards — only emoji, x coefficient, NO text labels */}
             <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-2xl p-3 flex flex-col items-center gap-1"
+              <div className="rounded-2xl py-4 flex flex-col items-center gap-2"
                 style={{ background: "rgba(5,150,105,0.1)", border: "1.5px solid rgba(74,222,128,0.2)" }}>
-                <span className="text-2xl">⬇️</span>
-                <p className="font-black text-sm text-center" style={{ color: "#4ade80" }}>{t.small}</p>
-                <p className="text-xs font-bold" style={{ color: ts.textSub }}>1–45</p>
-                <p className="text-xs font-black" style={{ color: "#4ade80" }}>x2</p>
+                <span className="text-3xl">⬇️</span>
+                <p className="font-black text-sm" style={{ color: "#4ade80" }}>x2</p>
               </div>
-              <div className="rounded-2xl p-3 flex flex-col items-center gap-1"
-                style={{ background: "rgba(217,119,6,0.1)", border: "1.5px solid rgba(251,191,36,0.2)" }}>
-                <span className="text-2xl">⬆️</span>
-                <p className="font-black text-sm text-center" style={{ color: "#fbbf24" }}>{t.big}</p>
-                <p className="text-xs font-bold" style={{ color: ts.textSub }}>46–90</p>
-                <p className="text-xs font-black" style={{ color: "#fbbf24" }}>x2</p>
-              </div>
-              <div className="rounded-2xl p-3 flex flex-col items-center gap-1"
+              <div className="rounded-2xl py-4 flex flex-col items-center gap-2"
                 style={{ background: "rgba(168,85,247,0.1)", border: "1.5px solid rgba(192,132,252,0.2)" }}>
-                <span className="text-2xl">🎯</span>
-                <p className="font-black text-sm text-center" style={{ color: "#c084fc" }}>TENG</p>
-                <p className="text-xs font-bold" style={{ color: ts.textSub }}>Aniq son</p>
-                <p className="text-xs font-black" style={{ color: "#c084fc" }}>x20</p>
+                <span className="text-3xl">🎯</span>
+                <p className="font-black text-sm" style={{ color: "#c084fc" }}>x20</p>
+              </div>
+              <div className="rounded-2xl py-4 flex flex-col items-center gap-2"
+                style={{ background: "rgba(217,119,6,0.1)", border: "1.5px solid rgba(251,191,36,0.2)" }}>
+                <span className="text-3xl">⬆️</span>
+                <p className="font-black text-sm" style={{ color: "#fbbf24" }}>x2</p>
               </div>
             </div>
 
@@ -350,11 +324,6 @@ export default function Parity() {
                 className="w-full rounded-xl px-4 py-3 font-black text-center text-lg outline-none"
                 style={{ background: ts.input, border: `1px solid ${ts.inputBorder}`, color: ts.text }}
                 placeholder="2000" min={2000} />
-              <p className="text-xs mt-2 text-center" style={{ color: ts.textSub }}>
-                KICHIK/KATTA: <span className="font-black" style={{ color: "#4ade80" }}>x2</span>
-                {"  "}|{"  "}
-                TENG: <span className="font-black" style={{ color: "#c084fc" }}>x20</span>
-              </p>
             </div>
 
             <button onClick={startGame}
@@ -370,7 +339,7 @@ export default function Parity() {
           </>
         )}
 
-        {/* ── Spinning message ── */}
+        {/* ── Spinning ── */}
         {isSpinning && (
           <div className="text-center py-4">
             <p className="font-black text-base animate-pulse" style={{ color: "#a78bfa" }}>
@@ -379,17 +348,28 @@ export default function Parity() {
           </div>
         )}
 
-        {/* ── Result: play again ── */}
+        {/* ── Result ── */}
         {phase === "result" && (
-          <button onClick={playAgain}
-            className="w-full py-5 rounded-2xl font-black text-xl active:scale-95 transition-all"
-            style={{
-              background: "linear-gradient(145deg,#312e81,#4c1d95)",
-              color: "#a78bfa",
-              boxShadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(139,92,246,0.5)",
-            }}>
-            🔄 {t.playAgain}
-          </button>
+          <div className="flex flex-col gap-3">
+            <button onClick={playAgain}
+              className="w-full py-4 rounded-2xl font-black text-lg active:scale-95 transition-all"
+              style={{
+                background: "linear-gradient(145deg,#312e81,#4c1d95)",
+                color: "#a78bfa",
+                boxShadow: "0 5px 0 rgba(0,0,0,0.3), 0 6px 20px rgba(139,92,246,0.5)",
+              }}>
+              🔄 {t.playAgain}
+            </button>
+            <button onClick={goToBot}
+              className="w-full py-4 rounded-2xl font-black text-lg active:scale-95 transition-all"
+              style={{
+                background: isLight ? "rgba(99,102,241,0.08)" : "rgba(255,255,255,0.07)",
+                color: ts.textSub,
+                border: `1px solid ${ts.cardBorder}`,
+              }}>
+              ← Botga qaytish
+            </button>
+          </div>
         )}
 
         {saving && (

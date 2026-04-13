@@ -9,11 +9,12 @@ import type { Lang } from "@/lib/i18n";
 interface Props {
   title: string;
   subtitle?: string;
+  hideTheme?: boolean;
 }
 
 const FLAG: Record<Lang, string> = { uz: "🇺🇿", ru: "🇷🇺", en: "🇬🇧" };
 
-export default function GameHeader({ title, subtitle }: Props) {
+export default function GameHeader({ title, subtitle, hideTheme }: Props) {
   const [, nav] = useLocation();
   const { player } = usePlayer();
   const { lang, setLang } = useLang();
@@ -54,21 +55,23 @@ export default function GameHeader({ title, subtitle }: Props) {
         </div>
 
         {/* Theme toggle */}
-        <div className="flex gap-1 shrink-0">
-          {(["dark","light","black"] as const).map(th => (
-            <button key={th} onClick={() => setTheme(th)}
-              className="w-7 h-7 rounded-xl flex items-center justify-center text-sm active:scale-90 transition-transform"
-              style={{
-                background: theme === th
-                  ? (th === "light" ? "#f0f4ff" : th === "black" ? "#000" : "#7c3aed")
-                  : (isLight ? "rgba(99,102,241,0.08)" : "rgba(255,255,255,0.07)"),
-                border: `1px solid ${theme === th ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.1)"}`,
-                fontSize: 12,
-              }}>
-              {th === "light" ? "☀️" : th === "black" ? "⬛" : "🌙"}
-            </button>
-          ))}
-        </div>
+        {!hideTheme && (
+          <div className="flex gap-1 shrink-0">
+            {(["dark","light","black"] as const).map(th => (
+              <button key={th} onClick={() => setTheme(th)}
+                className="w-7 h-7 rounded-xl flex items-center justify-center text-sm active:scale-90 transition-transform"
+                style={{
+                  background: theme === th
+                    ? (th === "light" ? "#f0f4ff" : th === "black" ? "#000" : "#7c3aed")
+                    : (isLight ? "rgba(99,102,241,0.08)" : "rgba(255,255,255,0.07)"),
+                  border: `1px solid ${theme === th ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.1)"}`,
+                  fontSize: 12,
+                }}>
+                {th === "light" ? "☀️" : th === "black" ? "⬛" : "🌙"}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Lang switcher */}
         <div className="relative shrink-0">
