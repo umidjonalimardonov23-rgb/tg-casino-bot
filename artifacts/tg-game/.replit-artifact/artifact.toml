@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Telegram Mini Game"
+version = "1.0.0"
+id = "artifacts/tg-game"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22769
+
+[services.development]
+run = "pnpm --filter @workspace/tg-game run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/tg-game", "run", "build" ]
+publicDir = "artifacts/tg-game/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22769"
+BASE_PATH = "/"
