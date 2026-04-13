@@ -201,14 +201,17 @@ export async function startBot() {
   // Admin panel helper
   async function sendAdminMenu(chatId: number) {
     try {
-      const pendingDeps = await db.select({ cnt: sql<number>`count(*)::int` }).from(depositRequestsTable).where(eq(depositRequestsTable.status, "pending"));
-      const pendingWds = await db.select({ cnt: sql<number>`count(*)::int` }).from(withdrawRequestsTable).where(eq(withdrawRequestsTable.status, "pending"));
-      const [totalPlayers] = await db.select({ count: sql<number>`count(*)::int` }).from(playersTable);
-      const depCount = pendingDeps[0]?.cnt ?? 0;
-      const wdCount = pendingWds[0]?.cnt ?? 0;
+      logger.info({ chatId }, "sendAdminMenu called");
+      const depRes = await db.execute(sql`SELECT count(*)::int as cnt FROM deposit_requests WHERE status='pending'`);
+      const wdRes = await db.execute(sql`SELECT count(*)::int as cnt FROM withdraw_requests WHERE status='pending'`);
+      const playersRes = await db.execute(sql`SELECT count(*)::int as cnt FROM players`);
+      const depCount = Number((depRes.rows?.[0] as any)?.cnt ?? (depRes as any)[0]?.cnt ?? 0);
+      const wdCount = Number((wdRes.rows?.[0] as any)?.cnt ?? (wdRes as any)[0]?.cnt ?? 0);
+      const totalPlayers = Number((playersRes.rows?.[0] as any)?.cnt ?? (playersRes as any)[0]?.cnt ?? 0);
+      logger.info({ depCount, wdCount, totalPlayers }, "sendAdminMenu stats loaded");
       await bot!.sendMessage(chatId,
         `🔧 <b>ADMIN PANEL</b>\n\n` +
-        `👥 Jami o'yinchilar: <b>${totalPlayers.count}</b>\n` +
+        `👥 Jami o'yinchilar: <b>${totalPlayers}</b>\n` +
         `⏳ Kutilayotgan depozit: <b>${depCount} ta</b>\n` +
         `⏳ Kutilayotgan yechim: <b>${wdCount} ta</b>`,
         {
@@ -236,6 +239,9 @@ export async function startBot() {
       );
     } catch (err) {
       logger.error({ err }, "sendAdminMenu xato");
+      try {
+        await bot!.sendMessage(chatId, `❌ Admin panel xatosi: ${err instanceof Error ? err.message : String(err)}`);
+      } catch {}
     }
   }
 
