@@ -27,6 +27,10 @@ const pendingWithdraw = new Map<number, { amount: number }>(); // userId -> with
 const waitingForHelp = new Set<number>();                      // userId waiting to type help question
 const adminReplyTarget = new Map<number, number>();            // adminId -> targetUserId (for admin replies)
 const waitingForBroadcast = new Set<number>();                  // adminId waiting to type broadcast message
+const waitingForSendId = new Set<number>();                    // admin waiting to type target userId
+const waitingForSendMsg = new Map<number, string>();           // admin -> targetId (waiting for message text)
+const waitingForAddbalId = new Set<number>();                  // admin waiting to type userId for balance
+const waitingForAddbalAmount = new Map<number, string>();      // admin -> targetId (waiting for amount)
 
 export async function notifyAdminWithdraw(opts: {
   reqId: number; telegramId: string; firstName: string; username: string | null;
@@ -185,6 +189,54 @@ export async function startBot() {
       return;
     }
     await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance);
+  });
+
+  // Admin panel helper
+  async function sendAdminMenu(chatId: number) {
+    try {
+      const pendingDeps = await db.select({ cnt: sql<number>`count(*)::int` }).from(depositRequestsTable).where(eq(depositRequestsTable.status, "pending"));
+      const pendingWds = await db.select({ cnt: sql<number>`count(*)::int` }).from(withdrawRequestsTable).where(eq(withdrawRequestsTable.status, "pending"));
+      const [totalPlayers] = await db.select({ count: sql<number>`count(*)::int` }).from(playersTable);
+      const depCount = pendingDeps[0]?.cnt ?? 0;
+      const wdCount = pendingWds[0]?.cnt ?? 0;
+      await bot!.sendMessage(chatId,
+        `🔧 <b>ADMIN PANEL</b>\n\n` +
+        `👥 Jami o'yinchilar: <b>${totalPlayers.count}</b>\n` +
+        `⏳ Kutilayotgan depozit: <b>${depCount} ta</b>\n` +
+        `⏳ Kutilayotgan yechim: <b>${wdCount} ta</b>`,
+        {
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "📢 Barchaga xabar", callback_data: "admin_broadcast" },
+                { text: "💌 Bitta kishiga", callback_data: "admin_send_user" },
+              ],
+              [
+                { text: "💰 Bonus/Balans qo'sh", callback_data: "admin_addbal" },
+                { text: "📊 Statistika", callback_data: "admin_stat" },
+              ],
+              [
+                { text: "👥 Foydalanuvchilar", callback_data: "admin_users" },
+                { text: "⏳ Kutilayotganlar", callback_data: "admin_pending" },
+              ],
+              [
+                { text: "💸 Yechimlarni ko'r", callback_data: "admin_withdrawals" },
+              ],
+            ],
+          },
+        }
+      );
+    } catch (err) {
+      logger.error({ err }, "sendAdminMenu xato");
+    }
+  }
+
+  // /admin command — admin panel
+  bot.onText(/\/admin/, async (msg) => {
+    if (!msg.from) return;
+    if (ADMIN_ID && msg.from.id !== ADMIN_ID) return;
+    await sendAdminMenu(msg.chat.id);
   });
 
   // /broadcast command — admin only
@@ -367,9 +419,103 @@ export async function startBot() {
       return;
     }
 
+    // Admin: cancel clears new states too
+    if (text === "/cancel") {
+      waitingForSendId.delete(userId);
+      waitingForSendMsg.delete(userId);
+      waitingForAddbalId.delete(userId);
+      waitingForAddbalAmount.delete(userId);
+    }
+
+    // Admin: send to specific user — step 1: got user ID
+    if (waitingForSendId.has(userId)) {
+      const targetId = text.trim();
+      if (!/^\d+$/.test(targetId)) {
+        await bot!.sendMessage(chatId, "❌ Noto'g'ri format. Faqat raqam kiriting.\nMasalan: <code>123456789</code>", { parse_mode: "HTML" });
+        return;
+      }
+      const [pl] = await db.select().from(playersTable).where(eq(playersTable.telegramId, targetId));
+      const name = pl ? (pl.username ? `@${pl.username}` : pl.firstName) : `ID: ${targetId}`;
+      waitingForSendId.delete(userId);
+      waitingForSendMsg.set(userId, targetId);
+      await bot!.sendMessage(chatId,
+        `💌 <b>Xabar matni</b>\n\nKimga: <b>${name}</b>\n🆔 <code>${targetId}</code>\n\nYubormoqchi bo'lgan xabarni yozing:\n\n<i>Bekor qilish uchun /cancel</i>`,
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
+
+    // Admin: send to specific user — step 2: got message text
+    if (waitingForSendMsg.has(userId)) {
+      const targetId = waitingForSendMsg.get(userId)!;
+      waitingForSendMsg.delete(userId);
+      try {
+        await bot!.sendMessage(Number(targetId), `📩 <b>Admin xabari:</b>\n\n${text}`, { parse_mode: "HTML" });
+        await bot!.sendMessage(chatId, `✅ <b>Xabar yuborildi!</b>\n🆔 <code>${targetId}</code>`, {
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] }
+        });
+      } catch {
+        await bot!.sendMessage(chatId, `❌ Xabar yuborib bo'lmadi. ID noto'g'ri yoki foydalanuvchi botni bloklagan.`);
+      }
+      return;
+    }
+
+    // Admin: add balance — step 1: got user ID
+    if (waitingForAddbalId.has(userId)) {
+      const targetId = text.trim();
+      if (!/^\d+$/.test(targetId)) {
+        await bot!.sendMessage(chatId, "❌ Noto'g'ri format. Faqat raqam kiriting.", { parse_mode: "HTML" });
+        return;
+      }
+      const [pl] = await db.select().from(playersTable).where(eq(playersTable.telegramId, targetId));
+      if (!pl) {
+        await bot!.sendMessage(chatId, `❌ Foydalanuvchi topilmadi: <code>${targetId}</code>\n\nID to'g'riligini tekshiring.`, { parse_mode: "HTML" });
+        return;
+      }
+      const name = pl.username ? `@${pl.username}` : pl.firstName;
+      waitingForAddbalId.delete(userId);
+      waitingForAddbalAmount.set(userId, targetId);
+      await bot!.sendMessage(chatId,
+        `💰 <b>Balans Qo'shish</b>\n\n👤 Foydalanuvchi: <b>${name}</b>\n🆔 <code>${targetId}</code>\n💵 Joriy balans: <b>${fmt(pl.balance)} UZS</b>\n\nQancha qo'shish kerak? (UZS):\n\n<i>Bekor qilish uchun /cancel</i>`,
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
+
+    // Admin: add balance — step 2: got amount
+    if (waitingForAddbalAmount.has(userId)) {
+      const targetId = waitingForAddbalAmount.get(userId)!;
+      const amount = Number(text.replace(/\s/g, ""));
+      if (!amount || isNaN(amount) || amount <= 0) {
+        await bot!.sendMessage(chatId, "❌ Noto'g'ri miqdor. Faqat musbat raqam kiriting.\nMasalan: <code>50000</code>", { parse_mode: "HTML" });
+        return;
+      }
+      waitingForAddbalAmount.delete(userId);
+      const [pl] = await db.select().from(playersTable).where(eq(playersTable.telegramId, targetId));
+      if (!pl) { await bot!.sendMessage(chatId, "❌ Foydalanuvchi topilmadi."); return; }
+      const newBal = pl.balance + amount;
+      await db.update(playersTable).set({ balance: newBal, updatedAt: new Date() }).where(eq(playersTable.telegramId, targetId));
+      const name = pl.username ? `@${pl.username}` : pl.firstName;
+      // Notify user
+      try {
+        await bot!.sendMessage(Number(targetId),
+          `🎁 <b>Hisobingizga bonus qo'shildi!</b>\n\n💰 Qo'shildi: <b>+${fmt(amount)} UZS</b>\n💵 Yangi balans: <b>${fmt(newBal)} UZS</b>\n\nO'yiningiz omadli bo'lsin! 🎮`,
+          { parse_mode: "HTML" }
+        );
+      } catch {}
+      await bot!.sendMessage(chatId,
+        `✅ <b>Balans qo'shildi!</b>\n\n👤 ${name}\n🆔 <code>${targetId}</code>\n➕ Qo'shildi: <b>${fmt(amount)} UZS</b>\n💵 Yangi balans: <b>${fmt(newBal)} UZS</b>`,
+        { parse_mode: "HTML",
+          reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] }
+        }
+      );
+      return;
+    }
+
     // Admin broadcast message
-    if (userId === ADMIN_ID && waitingForBroadcast.has(ADMIN_ID)) {
-      waitingForBroadcast.delete(ADMIN_ID);
+    if (waitingForBroadcast.has(userId)) {
+      waitingForBroadcast.delete(userId);
       const allPlayers = await db.select({ telegramId: playersTable.telegramId }).from(playersTable);
       await bot!.sendMessage(chatId, `📢 <b>${allPlayers.length} ta foydalanuvchiga yuborilmoqda...</b>`, { parse_mode: "HTML" });
       let sent = 0, failed = 0;
@@ -385,15 +531,15 @@ export async function startBot() {
       }
       await bot!.sendMessage(chatId,
         `✅ <b>Yuborildi!</b>\n✅ Muvaffaqiyatli: <b>${sent} ta</b>\n❌ Yuborilmadi: <b>${failed} ta</b>`,
-        { parse_mode: "HTML" }
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] } }
       );
       return;
     }
 
     // Admin reply to user help question
-    if (userId === ADMIN_ID && adminReplyTarget.has(ADMIN_ID)) {
-      const targetId = adminReplyTarget.get(ADMIN_ID)!;
-      adminReplyTarget.delete(ADMIN_ID);
+    if (adminReplyTarget.has(userId)) {
+      const targetId = adminReplyTarget.get(userId)!;
+      adminReplyTarget.delete(userId);
       try {
         await bot!.sendMessage(targetId,
           `📩 <b>Admin javobi:</b>\n\n${text}`,
@@ -790,15 +936,174 @@ export async function startBot() {
       return;
     }
 
-    // Admin: broadcast menu
+    // Admin: broadcast menu (from main menu button)
     if (data === "broadcast_menu") {
       if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       await bot!.answerCallbackQuery(q.id);
-      waitingForBroadcast.add(ADMIN_ID);
+      waitingForBroadcast.add(q.from.id);
       await bot!.sendMessage(chatId,
         `📢 <b>Xabar Yuborish</b>\n\nBarcha o'yinchilarga yuboriladigan xabarni yozing:\n\n<i>Bekor qilish uchun /cancel yozing</i>`,
         { parse_mode: "HTML" }
       );
+      return;
+    }
+
+    // ═══════════════════════════════════════
+    // ADMIN PANEL CALLBACKS
+    // ═══════════════════════════════════════
+    const isAdmin = !ADMIN_ID || q.from.id === ADMIN_ID;
+
+    if (data === "admin_panel") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      await sendAdminMenu(chatId);
+      return;
+    }
+
+    if (data === "admin_broadcast") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      waitingForBroadcast.add(q.from.id);
+      await bot!.sendMessage(chatId,
+        `📢 <b>Barchaga Xabar</b>\n\nBarcha o'yinchilarga yuboriladigan xabarni yozing:\n\n<i>Bekor qilish uchun /cancel yozing</i>`,
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
+
+    if (data === "admin_send_user") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      waitingForSendId.add(q.from.id);
+      await bot!.sendMessage(chatId,
+        `💌 <b>Bitta Kishiga Xabar</b>\n\nFoydalanuvchining Telegram ID sini yuboring:\n\n<i>Masalan: <code>123456789</code></i>\n<i>Bekor qilish uchun /cancel</i>`,
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
+
+    if (data === "admin_addbal") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      waitingForAddbalId.add(q.from.id);
+      await bot!.sendMessage(chatId,
+        `💰 <b>Balans / Bonus Qo'shish</b>\n\nFoydalanuvchining Telegram ID sini yuboring:\n\n<i>Masalan: <code>123456789</code></i>\n<i>Bekor qilish uchun /cancel</i>`,
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
+
+    if (data === "admin_stat") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      try {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const [totalPlayers] = await db.select({ count: sql<number>`count(*)::int` }).from(playersTable);
+        const [newToday] = await db.select({ count: sql<number>`count(*)::int` }).from(playersTable).where(sql`created_at >= ${today}`);
+        const [depTotal] = await db.select({ total: sql<number>`coalesce(sum(amount),0)::int`, cnt: sql<number>`count(*)::int` }).from(depositRequestsTable).where(eq(depositRequestsTable.status, "approved"));
+        const [depToday] = await db.select({ total: sql<number>`coalesce(sum(amount),0)::int`, cnt: sql<number>`count(*)::int` }).from(depositRequestsTable).where(sql`created_at >= ${today} and status = 'approved'`);
+        const [wdToday] = await db.select({ total: sql<number>`coalesce(sum(amount),0)::int`, cnt: sql<number>`count(*)::int` }).from(withdrawRequestsTable).where(sql`created_at >= ${today} and status = 'approved'`);
+        const [wdTotal] = await db.select({ total: sql<number>`coalesce(sum(amount),0)::int` }).from(withdrawRequestsTable).where(eq(withdrawRequestsTable.status, "approved"));
+        const [totalBal] = await db.select({ total: sql<number>`coalesce(sum(balance),0)::int` }).from(playersTable);
+        const pendingDeps = await db.select({ cnt: sql<number>`count(*)::int` }).from(depositRequestsTable).where(eq(depositRequestsTable.status, "pending"));
+        const pendingWds = await db.select({ cnt: sql<number>`count(*)::int` }).from(withdrawRequestsTable).where(eq(withdrawRequestsTable.status, "pending"));
+        await bot!.sendMessage(chatId,
+          `📊 <b>STATISTIKA</b>\n\n` +
+          `👥 Jami o'yinchilar: <b>${totalPlayers.count}</b>\n` +
+          `🆕 Bugun yangi: <b>${newToday.count}</b>\n\n` +
+          `💰 Bugun depozit: <b>${fmt(depToday.total)} UZS</b> (${depToday.cnt} ta)\n` +
+          `💰 Jami depozit: <b>${fmt(depTotal.total)} UZS</b> (${depTotal.cnt} ta)\n\n` +
+          `💸 Bugun yechim: <b>${fmt(wdToday.total)} UZS</b> (${wdToday.cnt} ta)\n` +
+          `💸 Jami yechim: <b>${fmt(wdTotal.total)} UZS</b>\n\n` +
+          `🏦 Jami balanslar: <b>${fmt(totalBal.total)} UZS</b>\n\n` +
+          `⏳ Kutilayotgan:\n• Depozit: <b>${pendingDeps[0]?.cnt ?? 0} ta</b>\n• Yechim: <b>${pendingWds[0]?.cnt ?? 0} ta</b>`,
+          { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] } }
+        );
+      } catch (err) { logger.error({ err }, "admin_stat xato"); }
+      return;
+    }
+
+    if (data === "admin_users") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      const all = await db.select({
+        telegramId: playersTable.telegramId,
+        firstName: playersTable.firstName,
+        username: playersTable.username,
+        balance: playersTable.balance,
+        gamesPlayed: playersTable.gamesPlayed,
+      }).from(playersTable).orderBy(desc(playersTable.balance)).limit(30);
+      const real = all.filter(p => p.telegramId !== "demo_user");
+      const lines = real.map((p, i) => {
+        const name = p.username ? `@${p.username}` : p.firstName;
+        return `${i+1}. ${name}\n🆔 <code>${p.telegramId}</code> | 💰 <b>${fmt(p.balance)} UZS</b>`;
+      }).join("\n\n");
+      const chunks = lines.match(/[\s\S]{1,3800}/g) || ["Hali hech kim yo'q"];
+      for (const chunk of chunks) {
+        await bot!.sendMessage(chatId, `👥 <b>FOYDALANUVCHILAR (${real.length} ta)</b>\n\n${chunk}`,
+          { parse_mode: "HTML" });
+      }
+      await bot!.sendMessage(chatId, "🔙", { reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] } });
+      return;
+    }
+
+    if (data === "admin_pending") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      const deps = await db.select().from(depositRequestsTable)
+        .where(eq(depositRequestsTable.status, "pending"))
+        .orderBy(desc(depositRequestsTable.createdAt))
+        .limit(20);
+      if (!deps.length) {
+        await bot!.sendMessage(chatId, `⏳ <b>Kutilayotgan depozitlar yo'q</b>`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] } });
+        return;
+      }
+      for (const dep of deps) {
+        const [pl] = await db.select().from(playersTable).where(eq(playersTable.id, dep.playerId));
+        const name = pl?.username ? `@${pl.username}` : (pl?.firstName ?? "—");
+        const msg = `⏳ <b>KUTILAYOTGAN DEPOZIT</b>\n\n👤 ${name}\n🆔 <code>${dep.telegramId}</code>\n💵 <b>${fmt(dep.amount)} UZS</b>\n🎁 Bonus: <b>${fmt(dep.bonusAmount)} UZS</b>`;
+        try {
+          if (dep.telegramFileId) {
+            await bot!.sendPhoto(chatId, dep.telegramFileId, {
+              caption: msg, parse_mode: "HTML",
+              reply_markup: { inline_keyboard: [[
+                { text: "✅ Tasdiqlash", callback_data: `dep_ok_${dep.id}` },
+                { text: "❌ Rad etish", callback_data: `dep_no_${dep.id}` },
+              ]]}
+            });
+          } else {
+            await bot!.sendMessage(chatId, msg, {
+              parse_mode: "HTML",
+              reply_markup: { inline_keyboard: [[
+                { text: "✅ Tasdiqlash", callback_data: `dep_ok_${dep.id}` },
+                { text: "❌ Rad etish", callback_data: `dep_no_${dep.id}` },
+              ]]}
+            });
+          }
+        } catch {}
+      }
+      return;
+    }
+
+    if (data === "admin_withdrawals") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      const wds = await db.select().from(withdrawRequestsTable)
+        .where(eq(withdrawRequestsTable.status, "pending"))
+        .orderBy(desc(withdrawRequestsTable.createdAt))
+        .limit(20);
+      if (!wds.length) {
+        await bot!.sendMessage(chatId, `💸 <b>Kutilayotgan yechimlar yo'q</b>`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] } });
+        return;
+      }
+      for (const wd of wds) {
+        await bot!.sendMessage(chatId,
+          `💸 <b>YECHIM SO'ROVI</b>\n\n🆔 <code>${wd.telegramId}</code>\n💵 <b>${fmt(wd.amount)} UZS</b>\n💳 ${wd.cardNumber}\n👤 ${wd.cardHolder}`,
+          { parse_mode: "HTML", reply_markup: { inline_keyboard: [[
+            { text: "✅ To'landi", callback_data: `wd_ok_${wd.id}` },
+            { text: "❌ Rad etish", callback_data: `wd_no_${wd.id}` },
+          ]]}});
+      }
       return;
     }
 
@@ -826,7 +1131,7 @@ export async function startBot() {
     if (data.startsWith("reply_help_")) {
       if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       const targetUserId = Number(data.split("_")[2]);
-      adminReplyTarget.set(ADMIN_ID, targetUserId);
+      adminReplyTarget.set(q.from.id, targetUserId);
       await bot!.answerCallbackQuery(q.id, { text: "Javobingizni yozing" });
       await bot!.sendMessage(chatId,
         `📩 <b>Javob yozing:</b>\n\nQuyidagi foydalanuvchiga javob yuboriladi: <code>${targetUserId}</code>`,
