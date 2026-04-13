@@ -1,0 +1,52 @@
+modules = ["nodejs-24", "postgresql-16"]
+
+[deployment]
+router = "application"
+deploymentTarget = "autoscale"
+
+[deployment.postBuild]
+args = ["pnpm", "store", "prune"]
+env = { "CI" = "true" }
+
+[workflows]
+runButton = "Project"
+
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 80
+
+[[ports]]
+localPort = 8082
+externalPort = 3003
+
+[[ports]]
+localPort = 22769
+externalPort = 3000
+
+[[ports]]
+localPort = 22770
+externalPort = 3002
+
+[userenv]
+
+[userenv.shared]
+CHANNEL_INVITE = "https://t.me/+BIxGcXiUhIc5MWJi"
+CHANNEL_ID = ""
+ADMIN_TELEGRAM_ID = "8787603995"
+CARD_NUMBER = "9860606756773093"
+CARD_HOLDER = "Xojanov Shavkat"
+
+[nix]
+channel = "stable-25_05"
