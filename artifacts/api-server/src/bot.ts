@@ -106,34 +106,35 @@ function mainMenuText(name: string, balance: number): string {
   return `🎮 <b>Salom, ${name}!</b>\n\n💰 Balansingiz: <b>${fmt(balance)} UZS</b>\n\n👇 O'yinni boshlash uchun tugmani bosing:`;
 }
 
-async function mainMenu(chatId: number, name: string, balance: number, isAdmin = false, telegramId?: string) {
-  // Remove any lingering reply keyboard first
+async function saveMenuMsgId(telegramId: string, msgId: number, chatId: number) {
+  userMenuMsgId.set(chatId, msgId);
   try {
-    const rm = await bot!.sendMessage(chatId, "⌛", { reply_markup: { remove_keyboard: true } });
-    await bot!.deleteMessage(chatId, rm.message_id);
+    await db.update(playersTable)
+      .set({ lastMenuMsgId: msgId })
+      .where(eq(playersTable.telegramId, telegramId));
   } catch {}
+}
+
+async function mainMenu(chatId: number, name: string, balance: number, isAdmin = false, telegramId?: string, oldMsgId?: number) {
+  // Delete the previous menu message to keep the chat clean
+  if (oldMsgId) {
+    try { await bot!.deleteMessage(chatId, oldMsgId); } catch {}
+  }
   const sent = await bot!.sendMessage(chatId, mainMenuText(name, balance),
     { parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }}
   );
-  userMenuMsgId.set(chatId, sent.message_id);
-  // Persist to DB so it survives redeploys
-  if (telegramId) {
-    try {
-      await db.update(playersTable)
-        .set({ lastMenuMsgId: sent.message_id })
-        .where(eq(playersTable.telegramId, telegramId));
-    } catch {}
-  }
+  if (telegramId) await saveMenuMsgId(telegramId, sent.message_id, chatId);
+  else userMenuMsgId.set(chatId, sent.message_id);
 }
 
-async function editToMainMenu(chatId: number, msgId: number, name: string, balance: number, isAdmin = false) {
-  try {
-    await bot!.editMessageText(mainMenuText(name, balance), {
-      chat_id: chatId, message_id: msgId,
-      parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }
-    });
-    userMenuMsgId.set(chatId, msgId);
-  } catch { /* message unchanged or deleted — ignore */ }
+async function editToMainMenu(chatId: number, msgId: number, name: string, balance: number, isAdmin = false, telegramId?: string) {
+  // Telegram doesn't allow editing messages with web_app buttons — use delete+send instead
+  try { await bot!.deleteMessage(chatId, msgId); } catch {}
+  const sent = await bot!.sendMessage(chatId, mainMenuText(name, balance),
+    { parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }}
+  );
+  if (telegramId) await saveMenuMsgId(telegramId, sent.message_id, chatId);
+  else userMenuMsgId.set(chatId, sent.message_id);
 }
 
 export async function notifyUserDepositCreated(telegramId: string, amount: number, bonus: number) {
@@ -260,22 +261,10 @@ export async function startBot() {
       return;
     }
     const isAdminUser = !ADMIN_ID || user.id === ADMIN_ID;
-    // Try DB-persisted msg ID first (survives redeploys), then fall back to in-memory map
-    const dbMsgId = freshPlayer.lastMenuMsgId ?? null;
-    const memMsgId = userMenuMsgId.get(msg.chat.id) ?? null;
-    const existingMsgId = dbMsgId ?? memMsgId;
-    if (existingMsgId) {
-      // Try to edit the existing menu — if it fails (too old/deleted), send a new one
-      try {
-        await bot!.editMessageText(mainMenuText(user.first_name, freshPlayer.balance), {
-          chat_id: msg.chat.id, message_id: existingMsgId,
-          parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdminUser) }
-        });
-        userMenuMsgId.set(msg.chat.id, existingMsgId);
-        return;
-      } catch { /* message too old or deleted — fall through to send new */ }
-    }
-    await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance, isAdminUser, String(user.id));
+    // Get old menu message ID from DB (persists across redeploys) or in-memory map
+    const oldMsgId = freshPlayer.lastMenuMsgId ?? userMenuMsgId.get(msg.chat.id) ?? undefined;
+    // Delete old menu + send fresh one (edit doesn't work with web_app buttons)
+    await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance, isAdminUser, String(user.id), oldMsgId);
   });
 
   // Admin panel helper
@@ -880,16 +869,16 @@ export async function startBot() {
         .set({ channelVerified: true, updatedAt: new Date() })
         .where(eq(playersTable.telegramId, String(q.from.id)));
       const isAdminUser = !ADMIN_ID || q.from.id === ADMIN_ID;
-      await mainMenu(chatId, q.from.first_name, p.balance, isAdminUser);
+      await mainMenu(chatId, q.from.first_name, p.balance, isAdminUser, String(q.from.id));
       return;
     }
 
-    // ◀️ Back to main menu — edit in-place, no new message
+    // ◀️ Back to main menu — delete sub-menu, send fresh menu
     if (data === "main_menu") {
       await bot!.answerCallbackQuery(q.id);
       const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(q.from.id)));
       const isAdminUser = !ADMIN_ID || q.from.id === ADMIN_ID;
-      await editToMainMenu(chatId, q.message.message_id, q.from.first_name, p?.balance ?? 0, isAdminUser);
+      await editToMainMenu(chatId, q.message.message_id, q.from.first_name, p?.balance ?? 0, isAdminUser, String(q.from.id));
       return;
     }
 
