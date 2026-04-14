@@ -215,16 +215,11 @@ async function sendDepositCard(chatId: number, amount: number, userId: number) {
 export function processWebhookUpdate(body: any) {
   if (!bot) { logger.warn("processWebhookUpdate: bot is null"); return; }
   logger.info({ updateId: body?.update_id, hasMessage: !!body?.message, hasCallback: !!body?.callback_query }, "Webhook update received");
-  try {
-    bot.processUpdate(body);
-  } catch (e) {
-    logger.error({ err: e }, "processUpdate threw");
-  }
   if (body?.message) {
-    try { bot.emit("message", body.message); } catch {}
+    try { bot.emit("message", body.message); } catch (e) { logger.error({ err: e }, "emit message error"); }
   }
   if (body?.callback_query) {
-    try { bot.emit("callback_query", body.callback_query); } catch {}
+    try { bot.emit("callback_query", body.callback_query); } catch (e) { logger.error({ err: e }, "emit callback error"); }
   }
 }
 
