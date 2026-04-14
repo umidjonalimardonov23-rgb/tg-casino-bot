@@ -357,7 +357,15 @@ export async function startBot() {
     const oldMsgId = freshPlayer.lastMenuMsgId ?? userMenuMsgId.get(msg.chat.id) ?? undefined;
     // Delete old menu + send fresh one (edit doesn't work with web_app buttons)
     await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance, isAdminUser, String(user.id), oldMsgId);
-    } catch (err) { logger.error({ err, chatId: msg.chat.id }, "/start handler error"); }
+    } catch (err: any) {
+      logger.error({ err, chatId: msg.chat.id }, "/start handler error");
+      try {
+        await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: msg.chat.id, text: `❌ /start xato: ${err?.message || err}` })
+        });
+      } catch {}
+    }
   });
 
   // Admin panel helper
