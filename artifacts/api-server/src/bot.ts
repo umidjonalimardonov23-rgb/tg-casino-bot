@@ -220,12 +220,18 @@ export function processWebhookUpdate(body: object) {
 export async function startBot() {
   if (!TOKEN) { logger.warn("No BOT TOKEN"); return; }
 
-  // Use polling everywhere — no webhook URL configuration needed.
-  // Works on Railway, Replit, or any host without extra env vars.
-  bot = new TelegramBot(TOKEN, { polling: false });
-  try { await bot.deleteWebHook(); } catch {}
-  await bot.startPolling();
-  logger.info("Bot started (polling mode)");
+  bot = new TelegramBot(TOKEN, { webHook: false });
+
+  const isProduction = process.env.NODE_ENV === "production";
+  if (isProduction && APP_URL) {
+    const webhookUrl = `${APP_URL}/api/bot-webhook`;
+    await bot.setWebHook(webhookUrl);
+    logger.info({ webhookUrl }, "Bot started (webhook mode)");
+  } else {
+    try { await bot.deleteWebHook(); } catch {}
+    await bot.startPolling();
+    logger.info("Bot started (polling mode — development)");
+  }
 
   // Set bot commands (shows in command list when user types /)
   try {
