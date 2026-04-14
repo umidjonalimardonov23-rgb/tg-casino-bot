@@ -60,15 +60,8 @@ if (isProduction) {
   }
 }
 
-// Only start the bot on Railway (RAILWAY_ENVIRONMENT is auto-set by Railway).
-// Replit deployment serves API+frontend only — no bot conflict.
-const isRailway = process.env.RAILWAY_ENVIRONMENT != null;
-const isBotEnabled = isRailway || process.env.BOT_ENABLED === "true";
-
-if (isProduction && isBotEnabled) {
+if (isProduction) {
   startBot().catch((err) => logger.error({ err }, "Bot start failed"));
-} else if (isProduction) {
-  logger.info("Bot not started — set BOT_ENABLED=true or deploy on Railway");
 } else {
   logger.info("Bot polling disabled in development (use Railway for production bot)");
 }
