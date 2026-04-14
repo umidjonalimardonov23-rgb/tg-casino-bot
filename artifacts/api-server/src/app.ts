@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import { startBot, processWebhookUpdate } from "./bot";
+import { startBot, handleWebhookUpdate } from "./bot";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,9 +39,13 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.post("/api/bot-webhook", (req, res) => {
-  processWebhookUpdate(req.body);
+app.post("/api/bot-webhook", async (req, res) => {
   res.sendStatus(200);
+  try {
+    await handleWebhookUpdate(req.body);
+  } catch (err) {
+    logger.error({ err }, "webhook handler error");
+  }
 });
 
 app.use("/api", router);
