@@ -60,10 +60,11 @@ if (isProduction) {
   }
 }
 
-if (isProduction) {
+const isOnRailway = !!(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+if (isProduction && !isOnRailway) {
   startBot().catch((err) => logger.error({ err }, "Bot start failed"));
-} else {
-  logger.info("Bot polling disabled in development");
+} else if (!isProduction) {
+  logger.info("Bot disabled in development");
 }
 
 export default app;
