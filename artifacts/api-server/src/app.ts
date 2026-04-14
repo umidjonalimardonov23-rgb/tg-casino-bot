@@ -36,7 +36,23 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", version: "test-v4", ...getBotStatus() });
+  res.json({ status: "ok", version: "fix-v5", ...getBotStatus() });
+});
+
+app.get("/api/db-fix", async (_req, res) => {
+  try {
+    const { db } = await import("@workspace/db");
+    const { sql } = await import("drizzle-orm");
+    // Add missing column if not exists
+    await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS last_menu_msg_id INTEGER`);
+    // Clear lastMenuMsgId for all (reset to avoid old broken IDs)
+    await db.execute(sql`UPDATE players SET last_menu_msg_id = NULL`);
+    // Check columns
+    const cols = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name='players' ORDER BY column_name`);
+    res.json({ ok: true, columns: (cols as any).rows?.map((r: any) => r.column_name) || cols });
+  } catch (err: any) {
+    res.json({ ok: false, error: err?.message });
+  }
 });
 
 app.get("/api/test-send", async (req, res) => {

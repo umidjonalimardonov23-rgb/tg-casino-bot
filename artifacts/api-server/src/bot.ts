@@ -28,7 +28,7 @@ function patchBotRequest(b: TelegramBot) {
   (b as any)._request = async function(path: string, options: any = {}) {
     const token = TOKEN;
     const url = `https://api.telegram.org/bot${token}/${path}`;
-    const form = options?.form || options?.formData || {};
+    const form = options?.form || options?.qs || options?.formData || {};
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
