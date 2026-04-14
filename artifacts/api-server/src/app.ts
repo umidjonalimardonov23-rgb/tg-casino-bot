@@ -41,31 +41,10 @@ app.get("/api/health", (_req, res) => {
 
 app.post("/api/bot-webhook", async (req, res) => {
   res.sendStatus(200);
-  const body = req.body;
-  const chatId = body?.message?.chat?.id || body?.callback_query?.message?.chat?.id;
-  const bodyStr = JSON.stringify(body || null).slice(0, 200);
-  logger.info({ chatId, bodyStr }, "WEBHOOK RAW");
-  if (chatId && process.env.TELEGRAM_BOT_TOKEN) {
-    try {
-      await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: `🔍 Debug: ${bodyStr.slice(0, 100)}` })
-      });
-    } catch {}
-  }
   try {
-    await handleWebhookUpdate(body);
+    await handleWebhookUpdate(req.body);
   } catch (err) {
     logger.error({ err }, "webhook handler error");
-    if (chatId && process.env.TELEGRAM_BOT_TOKEN) {
-      try {
-        await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: chatId, text: `❌ Error: ${err instanceof Error ? err.message : String(err)}` })
-        });
-      } catch {}
-    }
   }
 });
 

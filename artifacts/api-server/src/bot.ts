@@ -242,14 +242,8 @@ export async function handleWebhookUpdate(body: any) {
         if (m) {
           try {
             await h.fn(msg, m);
-          } catch (e: any) {
+          } catch (e) {
             logger.error({ err: e }, "text handler error");
-            try {
-              await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ chat_id: msg.chat.id, text: `❌ Handler xato: ${e?.message || e}` })
-              });
-            } catch {}
           }
           return;
         }
@@ -313,28 +307,13 @@ export async function startBot() {
     bot!.onText(re, fn);
   }
 
-  async function dbg(chatId: number, step: string) {
-    try {
-      await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: `🔧 ${step}` })
-      });
-    } catch {}
-  }
-
   // /start command (with referral support)
   regText(/\/start(.*)/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    await dbg(chatId, "1: handler start");
     try {
-    const user = msg.from; if (!user) { await dbg(chatId, "X: no user"); return; }
-    await dbg(chatId, "2: before DB");
+    const user = msg.from; if (!user) return;
     const isNew = !(await db.select().from(playersTable).where(eq(playersTable.telegramId, String(user.id)))).length;
-    await dbg(chatId, "3: after DB, isNew=" + isNew);
     const player = await getOrCreatePlayer(user);
-    await dbg(chatId, "4: player created");
 
-    // Handle referral code
     const param = (match?.[1] || "").trim();
     if (isNew && param.startsWith("ref_")) {
       const referrerId = param.replace("ref_", "");
@@ -353,11 +332,8 @@ export async function startBot() {
       }
     }
 
-    // Check channel subscription (one-time, saved in DB)
     const [freshPlayer] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(user.id)));
-    await dbg(chatId, "5: channelVerified=" + freshPlayer?.channelVerified);
     if (!freshPlayer?.channelVerified) {
-      await dbg(chatId, "6: sending channel sub msg");
       await bot!.sendMessage(msg.chat.id,
         `🎮 <b>1X GAME Botga Xush Kelibsiz!</b>\n\n📢 O'yin o'ynash uchun avval bizning kanalga a'zo bo'ling:\n\n👇 Quyidagi tugmani bosib a'zo bo'ling, so'ng <b>✅ A'zo Bo'ldim</b> tugmasini bosing.`,
         { parse_mode: "HTML", reply_markup: { inline_keyboard: [
@@ -365,17 +341,12 @@ export async function startBot() {
           [{ text: "✅ A'zo Bo'ldim", callback_data: "check_sub" }],
         ]}}
       );
-      await dbg(chatId, "7: channel msg sent OK");
       return;
     }
     const isAdminUser = !ADMIN_ID || user.id === ADMIN_ID;
     const oldMsgId = freshPlayer.lastMenuMsgId ?? userMenuMsgId.get(msg.chat.id) ?? undefined;
-    await dbg(chatId, "8: sending menu");
     await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance, isAdminUser, String(user.id), oldMsgId);
-    await dbg(chatId, "9: menu sent OK");
-    } catch (err: any) {
-      await dbg(chatId, `ERR: ${err?.message || err}`);
-    }
+    } catch (err) { logger.error({ err, chatId: msg.chat.id }, "/start handler error"); }
   });
 
   // Admin panel helper
