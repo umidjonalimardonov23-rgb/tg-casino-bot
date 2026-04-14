@@ -213,30 +213,25 @@ async function sendDepositCard(chatId: number, amount: number, userId: number) {
 }
 
 export async function handleWebhookUpdate(body: any) {
-  if (!bot || !body) return;
-  logger.info({ updateId: body.update_id, hasMsg: !!body.message, hasCb: !!body.callback_query }, "webhook update");
+  if (!body) return;
+  logger.info({ updateId: body.update_id, hasMsg: !!body.message, hasCb: !!body.callback_query, botExists: !!bot }, "webhook update");
 
-  if (body.message) {
-    const msg = body.message;
-    if (msg.text) {
-      const cbs = (bot as any)._textRegexpCallbacks;
-      if (cbs && Array.isArray(cbs)) {
-        for (const reg of cbs) {
-          const result = reg.regexp.exec(msg.text);
-          if (result) {
-            try { await reg.callback(msg, result); } catch (e) { logger.error({ err: e }, "onText handler error"); }
-            break;
-          }
-        }
-      }
+  if (body.message?.text?.startsWith("/start") && body.message?.chat?.id) {
+    const chatId = body.message.chat.id;
+    try {
+      await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: "✅ Bot ishlayapti! Webhook to'g'ri ishlayapti." })
+      });
+      logger.info({ chatId }, "Direct /start response sent");
+    } catch (e) {
+      logger.error({ err: e }, "Direct send failed");
     }
-    if (msg.photo) {
-      try { bot.emit("photo", msg); } catch {}
-    }
-    try { bot.emit("message", msg); } catch {}
   }
-  if (body.callback_query) {
-    try { bot.emit("callback_query", body.callback_query); } catch (e) { logger.error({ err: e }, "callback error"); }
+
+  if (bot) {
+    try { bot.processUpdate(body); } catch {}
   }
 }
 
