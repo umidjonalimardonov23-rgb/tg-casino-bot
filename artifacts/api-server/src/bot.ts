@@ -217,20 +217,11 @@ export function processWebhookUpdate(body: object) {
 export async function startBot() {
   if (!TOKEN) { logger.warn("No BOT TOKEN"); return; }
 
-  const isProduction = process.env.NODE_ENV === "production";
-
-  if (isProduction && APP_URL) {
-    const webhookUrl = `${APP_URL}/api/bot-webhook`;
-    bot = new TelegramBot(TOKEN, { webHook: false });
-    await bot.setWebHook(webhookUrl);
-    logger.info({ webhookUrl }, "Bot started (webhook mode)");
-  } else {
-    // Development — start polling (clear any old webhook first)
-    bot = new TelegramBot(TOKEN, { polling: false });
-    await bot.deleteWebHook();
-    await bot.startPolling();
-    logger.info("Bot started (polling mode — development)");
-  }
+  // Always use polling — simpler, no webhook URL config needed, works on any server
+  bot = new TelegramBot(TOKEN, { polling: false });
+  try { await bot.deleteWebHook(); } catch {}
+  await bot.startPolling();
+  logger.info("Bot started (polling mode)");
 
   // Set bot commands (shows in command list when user types /)
   try {
