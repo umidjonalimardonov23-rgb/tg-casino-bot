@@ -11,12 +11,15 @@ const CARD_NUMBER = process.env.CARD_NUMBER || "";
 const CARD_HOLDER = process.env.CARD_HOLDER || "";
 const DOMAINS = process.env.REPLIT_DOMAINS || "";
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || "";
-const RAILWAY_DOMAIN = process.env.RAILWAY_PUBLIC_DOMAIN || "";
+const RAILWAY_DOMAIN = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || "";
+// Hardcoded Railway URL as final fallback so webhook always works
+const RAILWAY_FALLBACK = "https://tg-game-bot-production-f44e.up.railway.app";
 const APP_URL =
   process.env.APP_URL ||
   RENDER_URL ||
   (RAILWAY_DOMAIN ? `https://${RAILWAY_DOMAIN}` : "") ||
-  (DOMAINS ? `https://${DOMAINS.split(",")[0]}` : "");
+  (DOMAINS ? `https://${DOMAINS.split(",")[0]}` : "") ||
+  RAILWAY_FALLBACK;
 const BONUS_PERCENT = 20;
 
 let bot: TelegramBot | null = null;
@@ -217,11 +220,19 @@ export function processWebhookUpdate(body: object) {
 export async function startBot() {
   if (!TOKEN) { logger.warn("No BOT TOKEN"); return; }
 
-  // Always use polling — simpler, no webhook URL config needed, works on any server
-  bot = new TelegramBot(TOKEN, { polling: false });
-  try { await bot.deleteWebHook(); } catch {}
-  await bot.startPolling();
-  logger.info("Bot started (polling mode)");
+  const isProduction = process.env.NODE_ENV === "production";
+
+  if (isProduction) {
+    const webhookUrl = `${APP_URL}/api/bot-webhook`;
+    bot = new TelegramBot(TOKEN, { webHook: false });
+    await bot.setWebHook(webhookUrl);
+    logger.info({ webhookUrl }, "Bot started (webhook mode)");
+  } else {
+    bot = new TelegramBot(TOKEN, { polling: false });
+    try { await bot.deleteWebHook(); } catch {}
+    await bot.startPolling();
+    logger.info("Bot started (polling mode — development)");
+  }
 
   // Set bot commands (shows in command list when user types /)
   try {
