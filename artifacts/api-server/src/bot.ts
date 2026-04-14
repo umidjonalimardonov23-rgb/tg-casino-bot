@@ -279,6 +279,16 @@ export async function handleWebhookUpdate(body: any) {
   }
 }
 
+export async function testSendMessage(chatId: number): Promise<any> {
+  try {
+    if (!bot) return { ok: false, error: "bot is null" };
+    const result = await bot.sendMessage(chatId, "✅ Test message from bot.sendMessage()");
+    return { ok: true, message_id: (result as any).message_id };
+  } catch (err: any) {
+    return { ok: false, error: err?.message, code: err?.code, response: err?.response?.body };
+  }
+}
+
 export async function startBot() {
   if (!TOKEN) { logger.warn("No BOT TOKEN"); return; }
 

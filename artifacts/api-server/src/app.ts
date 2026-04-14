@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import { handleWebhookUpdate, getBotStatus } from "./bot";
+import { handleWebhookUpdate, getBotStatus, testSendMessage } from "./bot";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -36,7 +36,13 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", version: "patch-v3", ...getBotStatus() });
+  res.json({ status: "ok", version: "test-v4", ...getBotStatus() });
+});
+
+app.get("/api/test-send", async (req, res) => {
+  const chatId = Number(req.query.chatId || process.env.ADMIN_TELEGRAM_ID || "0");
+  const result = await testSendMessage(chatId);
+  res.json(result);
 });
 
 app.post("/api/bot-webhook", async (req, res) => {
