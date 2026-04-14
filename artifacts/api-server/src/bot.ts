@@ -216,6 +216,16 @@ async function sendDepositCard(chatId: number, amount: number, userId: number) {
   );
 }
 
+export function getBotStatus() {
+  return {
+    botExists: !!bot,
+    textHandlers: _textHandlers.length,
+    hasCbHandler: !!_cbHandler,
+    hasMsgHandler: !!_msgHandler,
+    appUrl: APP_URL,
+  };
+}
+
 export async function handleWebhookUpdate(body: any) {
   if (!body) return;
   logger.info({ updateId: body.update_id, hasMsg: !!body.message, hasCb: !!body.callback_query, handlers: _textHandlers.length, hasCbH: !!_cbHandler, hasMsgH: !!_msgHandler }, "webhook update");
