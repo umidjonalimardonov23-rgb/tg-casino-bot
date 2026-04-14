@@ -60,10 +60,9 @@ if (isProduction) {
   }
 }
 
-const isOnRailway = !!(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
-if (isProduction && !isOnRailway) {
+if (isProduction) {
   startBot().catch((err) => logger.error({ err }, "Bot start failed"));
-} else if (!isProduction) {
+} else {
   logger.info("Bot disabled in development");
 }
 
