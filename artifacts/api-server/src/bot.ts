@@ -115,11 +115,7 @@ async function saveMenuMsgId(telegramId: string, msgId: number, chatId: number) 
   } catch {}
 }
 
-async function mainMenu(chatId: number, name: string, balance: number, isAdmin = false, telegramId?: string, oldMsgId?: number) {
-  // Delete the previous menu message to keep the chat clean
-  if (oldMsgId) {
-    try { await bot!.deleteMessage(chatId, oldMsgId); } catch {}
-  }
+async function sendNewMenu(chatId: number, name: string, balance: number, isAdmin: boolean, telegramId?: string) {
   const sent = await bot!.sendMessage(chatId, mainMenuText(name, balance),
     { parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }}
   );
@@ -127,14 +123,49 @@ async function mainMenu(chatId: number, name: string, balance: number, isAdmin =
   else userMenuMsgId.set(chatId, sent.message_id);
 }
 
+async function mainMenu(chatId: number, name: string, balance: number, isAdmin = false, telegramId?: string, oldMsgId?: number) {
+  if (oldMsgId) {
+    try {
+      await bot!.editMessageText(mainMenuText(name, balance), {
+        chat_id: chatId, message_id: oldMsgId,
+        parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }
+      });
+      // Edit succeeded — menu stays in the same position
+      userMenuMsgId.set(chatId, oldMsgId);
+      return;
+    } catch (err: any) {
+      const msg = err?.message ?? "";
+      if (msg.includes("message is not modified")) {
+        // Same content, no change needed
+        userMenuMsgId.set(chatId, oldMsgId);
+        return;
+      }
+      // Message deleted or too old — remove it and send fresh
+      try { await bot!.deleteMessage(chatId, oldMsgId); } catch {}
+    }
+  }
+  await sendNewMenu(chatId, name, balance, isAdmin, telegramId);
+}
+
 async function editToMainMenu(chatId: number, msgId: number, name: string, balance: number, isAdmin = false, telegramId?: string) {
-  // Telegram doesn't allow editing messages with web_app buttons — use delete+send instead
+  try {
+    await bot!.editMessageText(mainMenuText(name, balance), {
+      chat_id: chatId, message_id: msgId,
+      parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }
+    });
+    userMenuMsgId.set(chatId, msgId);
+    if (telegramId) await saveMenuMsgId(telegramId, msgId, chatId);
+    return;
+  } catch (err: any) {
+    const msg = err?.message ?? "";
+    if (msg.includes("message is not modified")) {
+      userMenuMsgId.set(chatId, msgId);
+      return;
+    }
+  }
+  // Edit failed — delete sub-menu then send fresh main menu
   try { await bot!.deleteMessage(chatId, msgId); } catch {}
-  const sent = await bot!.sendMessage(chatId, mainMenuText(name, balance),
-    { parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }}
-  );
-  if (telegramId) await saveMenuMsgId(telegramId, sent.message_id, chatId);
-  else userMenuMsgId.set(chatId, sent.message_id);
+  await sendNewMenu(chatId, name, balance, isAdmin, telegramId);
 }
 
 export async function notifyUserDepositCreated(telegramId: string, amount: number, bonus: number) {
