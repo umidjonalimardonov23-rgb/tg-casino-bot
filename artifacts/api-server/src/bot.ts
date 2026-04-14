@@ -212,40 +212,23 @@ async function sendDepositCard(chatId: number, amount: number, userId: number) {
   );
 }
 
-export async function handleWebhookUpdate(body: any) {
-  if (!body) return;
-  logger.info({ updateId: body.update_id, hasMsg: !!body.message, hasCb: !!body.callback_query, botExists: !!bot }, "webhook update");
-
-  if (body.message?.text?.startsWith("/start") && body.message?.chat?.id) {
-    const chatId = body.message.chat.id;
-    try {
-      await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: "✅ Bot ishlayapti! Webhook to'g'ri ishlayapti." })
-      });
-      logger.info({ chatId }, "Direct /start response sent");
-    } catch (e) {
-      logger.error({ err: e }, "Direct send failed");
-    }
-  }
-
-  if (bot) {
-    try { bot.processUpdate(body); } catch {}
-  }
+export function handleWebhookUpdate(body: any) {
+  if (!bot || !body) return;
+  logger.info({ updateId: body.update_id, hasMsg: !!body.message, hasCb: !!body.callback_query }, "webhook update");
+  bot.processUpdate(body);
 }
 
 export async function startBot() {
   if (!TOKEN) { logger.warn("No BOT TOKEN"); return; }
 
-  bot = new TelegramBot(TOKEN, { webHook: false });
-
   const isProduction = process.env.NODE_ENV === "production";
-  if (isProduction && APP_URL) {
+  if (isProduction) {
+    bot = new TelegramBot(TOKEN, { webHook: { autoOpen: false } });
     const webhookUrl = `${APP_URL}/api/bot-webhook`;
     await bot.setWebHook(webhookUrl);
     logger.info({ webhookUrl }, "Bot started (webhook mode)");
   } else {
+    bot = new TelegramBot(TOKEN, { webHook: false });
     try { await bot.deleteWebHook(); } catch {}
     await bot.startPolling();
     logger.info("Bot started (polling mode — development)");
