@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import { startBot, handleWebhookUpdate } from "./bot";
+import { handleWebhookUpdate } from "./bot";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -64,10 +64,5 @@ if (isProduction) {
   }
 }
 
-if (isProduction) {
-  startBot().catch((err) => logger.error({ err }, "Bot start failed"));
-} else {
-  logger.info("Bot disabled in development");
-}
 
 export default app;

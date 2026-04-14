@@ -218,25 +218,25 @@ async function sendDepositCard(chatId: number, amount: number, userId: number) {
 
 export async function handleWebhookUpdate(body: any) {
   if (!body) return;
-  logger.info({ updateId: body.update_id, hasMsg: !!body.message, hasCb: !!body.callback_query }, "webhook update");
+  logger.info({ updateId: body.update_id, hasMsg: !!body.message, hasCb: !!body.callback_query, handlers: _textHandlers.length, hasCbH: !!_cbHandler, hasMsgH: !!_msgHandler }, "webhook update");
 
   if (body.message) {
     const msg = body.message;
+    if (msg.photo && _msgHandler) {
+      try { await _msgHandler(msg); } catch (e) { logger.error({ err: e }, "photo handler error"); }
+      return;
+    }
     if (msg.text) {
-      let handled = false;
       for (const h of _textHandlers) {
         const m = h.re.exec(msg.text);
         if (m) {
           try { await h.fn(msg, m); } catch (e) { logger.error({ err: e }, "text handler error"); }
-          handled = true;
-          break;
+          return;
         }
       }
-      if (!handled && _msgHandler) {
+      if (_msgHandler) {
         try { await _msgHandler(msg); } catch (e) { logger.error({ err: e }, "msg handler error"); }
       }
-    } else if (_msgHandler) {
-      try { await _msgHandler(msg); } catch (e) { logger.error({ err: e }, "msg handler error"); }
     }
   }
   if (body.callback_query && _cbHandler) {
@@ -247,14 +247,20 @@ export async function handleWebhookUpdate(body: any) {
 export async function startBot() {
   if (!TOKEN) { logger.warn("No BOT TOKEN"); return; }
 
+  bot = new TelegramBot(TOKEN, { polling: false });
+
   const isProduction = process.env.NODE_ENV === "production";
-  if (isProduction) {
-    bot = new TelegramBot(TOKEN, { webHook: { autoOpen: false } });
+  if (isProduction && APP_URL) {
     const webhookUrl = `${APP_URL}/api/bot-webhook`;
-    await bot.setWebHook(webhookUrl);
+    try {
+      await fetch(`https://api.telegram.org/bot${TOKEN}/setWebhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: webhookUrl })
+      });
+    } catch (e) { logger.error({ err: e }, "setWebhook error"); }
     logger.info({ webhookUrl }, "Bot started (webhook mode)");
   } else {
-    bot = new TelegramBot(TOKEN, { webHook: false });
     try { await bot.deleteWebHook(); } catch {}
     await bot.startPolling();
     logger.info("Bot started (polling mode — development)");
