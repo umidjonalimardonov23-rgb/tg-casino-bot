@@ -152,25 +152,9 @@ async function sendNewMenu(chatId: number, name: string, balance: number, isAdmi
 }
 
 async function mainMenu(chatId: number, name: string, balance: number, isAdmin = false, telegramId?: string, oldMsgId?: number) {
+  // Delete old menu silently, then send fresh — always visible to user
   if (oldMsgId) {
-    try {
-      await bot!.editMessageText(mainMenuText(name, balance), {
-        chat_id: chatId, message_id: oldMsgId,
-        parse_mode: "HTML", reply_markup: { inline_keyboard: mainMenuKeyboard(isAdmin) }
-      });
-      // Edit succeeded — menu stays in the same position
-      userMenuMsgId.set(chatId, oldMsgId);
-      return;
-    } catch (err: any) {
-      const msg = err?.message ?? "";
-      if (msg.includes("message is not modified")) {
-        // Same content, no change needed
-        userMenuMsgId.set(chatId, oldMsgId);
-        return;
-      }
-      // Message deleted or too old — remove it and send fresh
-      try { await bot!.deleteMessage(chatId, oldMsgId); } catch {}
-    }
+    try { await bot!.deleteMessage(chatId, oldMsgId); } catch {}
   }
   await sendNewMenu(chatId, name, balance, isAdmin, telegramId);
 }
@@ -279,15 +263,6 @@ export async function handleWebhookUpdate(body: any) {
   }
 }
 
-export async function testSendMessage(chatId: number): Promise<any> {
-  try {
-    if (!bot) return { ok: false, error: "bot is null" };
-    const result = await bot.sendMessage(chatId, "✅ Test message from bot.sendMessage()");
-    return { ok: true, message_id: (result as any).message_id };
-  } catch (err: any) {
-    return { ok: false, error: err?.message, code: err?.code, response: err?.response?.body };
-  }
-}
 
 export async function startBot() {
   if (!TOKEN) { logger.warn("No BOT TOKEN"); return; }
