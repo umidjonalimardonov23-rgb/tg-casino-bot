@@ -60,10 +60,16 @@ if (isProduction) {
   }
 }
 
-if (isProduction) {
+// Start bot only when NOT on Railway — Replit deployment handles the bot via webhook.
+// Railway serves the game API. This prevents webhook conflict between two servers.
+const isOnRailway = !!(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_ENVIRONMENT_ID);
+
+if (isProduction && !isOnRailway) {
   startBot().catch((err) => logger.error({ err }, "Bot start failed"));
+} else if (isProduction && isOnRailway) {
+  logger.info("Railway detected — bot handled by Replit deployment (webhook). Railway serves API only.");
 } else {
-  logger.info("Bot polling disabled in development (use Railway for production bot)");
+  logger.info("Bot polling disabled in development");
 }
 
 export default app;
