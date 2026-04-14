@@ -23,6 +23,10 @@ const APP_URL =
 const BONUS_PERCENT = 20;
 
 let bot: TelegramBot | null = null;
+type TextHandler = { re: RegExp; fn: (msg: any, match: RegExpExecArray | null) => Promise<void> };
+const _textHandlers: TextHandler[] = [];
+let _cbHandler: ((q: any) => Promise<void>) | null = null;
+let _msgHandler: ((msg: any) => Promise<void>) | null = null;
 const waitingForCheck = new Map<number, number>();             // userId -> depositRequestId
 const waitingForAmount = new Set<number>();                    // userId waiting to type deposit amount
 const waitingForWithdrawAmount = new Set<number>();            // userId waiting to type withdraw amount
@@ -212,10 +216,32 @@ async function sendDepositCard(chatId: number, amount: number, userId: number) {
   );
 }
 
-export function handleWebhookUpdate(body: any) {
-  if (!bot || !body) return;
+export async function handleWebhookUpdate(body: any) {
+  if (!body) return;
   logger.info({ updateId: body.update_id, hasMsg: !!body.message, hasCb: !!body.callback_query }, "webhook update");
-  bot.processUpdate(body);
+
+  if (body.message) {
+    const msg = body.message;
+    if (msg.text) {
+      let handled = false;
+      for (const h of _textHandlers) {
+        const m = h.re.exec(msg.text);
+        if (m) {
+          try { await h.fn(msg, m); } catch (e) { logger.error({ err: e }, "text handler error"); }
+          handled = true;
+          break;
+        }
+      }
+      if (!handled && _msgHandler) {
+        try { await _msgHandler(msg); } catch (e) { logger.error({ err: e }, "msg handler error"); }
+      }
+    } else if (_msgHandler) {
+      try { await _msgHandler(msg); } catch (e) { logger.error({ err: e }, "msg handler error"); }
+    }
+  }
+  if (body.callback_query && _cbHandler) {
+    try { await _cbHandler(body.callback_query); } catch (e) { logger.error({ err: e }, "cb handler error"); }
+  }
 }
 
 export async function startBot() {
@@ -256,8 +282,13 @@ export async function startBot() {
     } catch {}
   }
 
+  function regText(re: RegExp, fn: (msg: any, match: RegExpExecArray | null) => Promise<void>) {
+    _textHandlers.push({ re, fn });
+    bot!.onText(re, fn);
+  }
+
   // /start command (with referral support)
-  bot.onText(/\/start(.*)/, async (msg, match) => {
+  regText(/\/start(.*)/, async (msg, match) => {
     try {
     logger.info({ chatId: msg.chat.id, text: msg.text }, "/start handler fired");
     const user = msg.from; if (!user) return;
@@ -355,7 +386,7 @@ export async function startBot() {
   }
 
   // /menu command — show main menu
-  bot.onText(/\/menu/, async (msg) => {
+  regText(/\/menu/, async (msg) => {
     if (!msg.from) return;
     const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(msg.from.id)));
     if (!p) { await bot!.sendMessage(msg.chat.id, "Botni ishga tushirish uchun /start yuboring."); return; }
@@ -364,7 +395,7 @@ export async function startBot() {
   });
 
   // /help command
-  bot.onText(/\/help/, async (msg) => {
+  regText(/\/help/, async (msg) => {
     if (!msg.from) return;
     await bot!.sendMessage(msg.chat.id,
       `❓ <b>Yordam</b>\n\nSavolingizni yozing, admin tez orada javob beradi:`,
@@ -373,14 +404,14 @@ export async function startBot() {
   });
 
   // /admin command — admin panel
-  bot.onText(/\/admin/, async (msg) => {
+  regText(/\/admin/, async (msg) => {
     if (!msg.from) return;
     if (ADMIN_ID && msg.from.id !== ADMIN_ID) return;
     await sendAdminMenu(msg.chat.id);
   });
 
   // /broadcast command — admin only
-  bot.onText(/\/broadcast/, async (msg) => {
+  regText(/\/broadcast/, async (msg) => {
     if (msg.from?.id !== ADMIN_ID) return;
     waitingForBroadcast.add(ADMIN_ID);
     await bot!.sendMessage(msg.chat.id,
@@ -390,7 +421,7 @@ export async function startBot() {
   });
 
   // /stat command — admin only
-  bot.onText(/\/stat/, async (msg) => {
+  regText(/\/stat/, async (msg) => {
     if (msg.from?.id !== ADMIN_ID) return;
     const chatId = msg.chat.id;
     try {
@@ -420,7 +451,7 @@ export async function startBot() {
   });
 
   // /send <telegramId> <message> — admin only
-  bot.onText(/\/send (.+)/, async (msg, match) => {
+  regText(/\/send (.+)/, async (msg, match) => {
     if (msg.from?.id !== ADMIN_ID) return;
     const parts = (match?.[1] || "").trim().split(" ");
     const targetId = parts[0];
@@ -441,7 +472,7 @@ export async function startBot() {
   });
 
   // /users — list all players (admin only)
-  bot.onText(/\/users/, async (msg) => {
+  regText(/\/users/, async (msg) => {
     if (msg.from?.id !== ADMIN_ID) return;
     const all = await db.select({
       telegramId: playersTable.telegramId,
@@ -464,7 +495,7 @@ export async function startBot() {
   });
 
   // /addbal <telegramId> <amount> — admin only
-  bot.onText(/\/addbal (.+)/, async (msg, match) => {
+  regText(/\/addbal (.+)/, async (msg, match) => {
     if (msg.from?.id !== ADMIN_ID) return;
     const parts = (match?.[1] || "").trim().split(" ");
     const targetId = parts[0];
@@ -494,7 +525,7 @@ export async function startBot() {
   });
 
   // Photo handler — deposit receipt
-  bot.on("photo", async (msg) => {
+  const photoHandler = async (msg: any) => {
     const userId = msg.from?.id; if (!userId) return;
     const fileId = msg.photo![msg.photo!.length - 1].file_id;
 
@@ -541,10 +572,11 @@ export async function startBot() {
         logger.error({ err, adminId: ADMIN_ID }, "Admin ga xabar yuborishda xato — ADMIN_TELEGRAM_ID ni tekshiring");
       }
     }
-  });
+  };
+  bot.on("photo", photoHandler);
 
   // Text handler
-  bot.on("message", async (msg) => {
+  const textMsgHandler = async (msg: any) => {
     if (!msg.text || !msg.from || msg.text.startsWith("/")) return;
     const userId = msg.from.id;
     const chatId = msg.chat.id;
@@ -886,10 +918,19 @@ export async function startBot() {
         }
       }
     }
-  });
+  };
+  bot.on("message", textMsgHandler);
+
+  _msgHandler = async (msg: any) => {
+    if (msg.photo) {
+      await photoHandler(msg);
+    } else {
+      await textMsgHandler(msg);
+    }
+  };
 
   // Callback handler
-  bot.on("callback_query", async (q) => {
+  const cbQueryHandler = async (q: any) => {
     if (!q.message || !q.from) return;
     const chatId = q.message.chat.id;
     const data = q.data || "";
@@ -1480,7 +1521,9 @@ export async function startBot() {
       logger.error({ err, data, userId: q.from.id }, "Callback query xatosi");
       try { await bot!.answerCallbackQuery(q.id, { text: "❌ Xato yuz berdi, qayta urinib ko'ring" }); } catch {}
     }
-  });
+  };
+  bot.on("callback_query", cbQueryHandler);
+  _cbHandler = cbQueryHandler;
 
   bot.on("polling_error", (e) => logger.error({ err: e }, "Bot polling error"));
 }
