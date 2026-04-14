@@ -58,6 +58,14 @@ app.post("/api/bot-webhook", async (req, res) => {
     await handleWebhookUpdate(body);
   } catch (err) {
     logger.error({ err }, "webhook handler error");
+    if (chatId && process.env.TELEGRAM_BOT_TOKEN) {
+      try {
+        await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text: `❌ Error: ${err instanceof Error ? err.message : String(err)}` })
+        });
+      } catch {}
+    }
   }
 });
 

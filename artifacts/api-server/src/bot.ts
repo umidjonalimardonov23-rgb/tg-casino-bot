@@ -240,7 +240,17 @@ export async function handleWebhookUpdate(body: any) {
       for (const h of _textHandlers) {
         const m = h.re.exec(msg.text);
         if (m) {
-          try { await h.fn(msg, m); } catch (e) { logger.error({ err: e }, "text handler error"); }
+          try {
+            await h.fn(msg, m);
+          } catch (e: any) {
+            logger.error({ err: e }, "text handler error");
+            try {
+              await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ chat_id: msg.chat.id, text: `❌ Handler xato: ${e?.message || e}` })
+              });
+            } catch {}
+          }
           return;
         }
       }
