@@ -212,9 +212,20 @@ async function sendDepositCard(chatId: number, amount: number, userId: number) {
   );
 }
 
-export function processWebhookUpdate(body: object) {
-  if (!bot) return;
-  bot.processUpdate(body as any);
+export function processWebhookUpdate(body: any) {
+  if (!bot) { logger.warn("processWebhookUpdate: bot is null"); return; }
+  logger.info({ updateId: body?.update_id, hasMessage: !!body?.message, hasCallback: !!body?.callback_query }, "Webhook update received");
+  try {
+    bot.processUpdate(body);
+  } catch (e) {
+    logger.error({ err: e }, "processUpdate threw");
+  }
+  if (body?.message) {
+    try { bot.emit("message", body.message); } catch {}
+  }
+  if (body?.callback_query) {
+    try { bot.emit("callback_query", body.callback_query); } catch {}
+  }
 }
 
 export async function startBot() {
@@ -257,6 +268,8 @@ export async function startBot() {
 
   // /start command (with referral support)
   bot.onText(/\/start(.*)/, async (msg, match) => {
+    try {
+    logger.info({ chatId: msg.chat.id, text: msg.text }, "/start handler fired");
     const user = msg.from; if (!user) return;
     const isNew = !(await db.select().from(playersTable).where(eq(playersTable.telegramId, String(user.id)))).length;
     const player = await getOrCreatePlayer(user);
@@ -297,6 +310,7 @@ export async function startBot() {
     const oldMsgId = freshPlayer.lastMenuMsgId ?? userMenuMsgId.get(msg.chat.id) ?? undefined;
     // Delete old menu + send fresh one (edit doesn't work with web_app buttons)
     await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance, isAdminUser, String(user.id), oldMsgId);
+    } catch (err) { logger.error({ err, chatId: msg.chat.id }, "/start handler error"); }
   });
 
   // Admin panel helper
