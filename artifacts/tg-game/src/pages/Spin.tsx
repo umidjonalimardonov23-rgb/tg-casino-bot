@@ -155,7 +155,7 @@ export default function Spin() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: ts.bg }}>
-      <GameHeader title="🎡 KUNLIK SPIN" subtitle="30% yutish • 70% omadsizlik" />
+      <GameHeader title="🎡 KUNLIK SPIN" subtitle="Har kuni bepul aylantirish!" />
 
       <div className="flex-1 flex flex-col items-center px-4 pb-6 gap-4">
 
@@ -254,16 +254,16 @@ export default function Spin() {
         {/* Prize breakdown */}
         <div className="w-full rounded-2xl p-3"
           style={{ background: ts.card, border: `1px solid ${ts.cardBorder}` }}>
-          <p className="text-xs font-black mb-2 text-center tracking-widest" style={{ color: ts.textSub }}>📊 EHTIMOLLAR</p>
+          <p className="text-xs font-black mb-2 text-center tracking-widest" style={{ color: ts.textSub }}>🏆 MUKOFOTLAR</p>
           <div className="grid grid-cols-4 gap-2 text-center">
             {[
-              { label: "💣 Miss",      pct: "70%", color: "#f87171" },
-              { label: "🍒 1K",        pct: "10%", color: "#d97706" },
-              { label: "⭐ 2K",        pct: "10%", color: "#34d399" },
-              { label: "💎 5K",        pct: "10%", color: "#a78bfa" },
+              { label: "💣 Omadsiz",  prize: "—",    color: "#f87171" },
+              { label: "🍒 Birinchi", prize: "1 000", color: "#d97706" },
+              { label: "⭐ Ikkinchi", prize: "2 000", color: "#34d399" },
+              { label: "💎 Katta",    prize: "5 000", color: "#a78bfa" },
             ].map(p => (
               <div key={p.label}>
-                <p className="text-xs font-black" style={{ color: p.color }}>{p.pct}</p>
+                <p className="text-xs font-black" style={{ color: p.color }}>{p.prize}</p>
                 <p style={{ fontSize: 10, color: ts.textSub }}>{p.label}</p>
               </div>
             ))}
