@@ -328,6 +328,12 @@ export default function AppleOfFortune() {
               style={{ background: "linear-gradient(135deg, #16a34a, #15803d)", boxShadow: "0 8px 28px rgba(22,163,74,0.4)", color: "white" }}>
               🔄 QAYTA O'YNASH
             </button>
+
+            <button onClick={() => { reset(); nav("/"); }}
+              className="w-full py-3 rounded-2xl font-black text-sm active:scale-95 transition-all mt-1"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.55)" }}>
+              ← Ortga qaytish
+            </button>
           </div>
         </div>
       )}
