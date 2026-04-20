@@ -140,7 +140,7 @@ export default function Slots() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: ts.bg }}>
       <style>{`@keyframes slotSpin { 0%{transform:translateY(-5px) scale(1.04)} 50%{transform:translateY(5px) scale(0.96)} 100%{transform:translateY(-5px) scale(1.04)} }`}</style>
-      <GameHeader title={`🎰 ${t.slotsTitle}`} subtitle="777=x10 | 3x bir xil=x3 | 2x bir xil=x1.5" />
+      <GameHeader title={`🎰 ${t.slotsTitle}`} subtitle="777 · Mevaları · Kombinatsiyalar" />
 
       <div className="flex-1 px-4 pb-6 flex flex-col gap-4 items-center">
 
@@ -190,18 +190,15 @@ export default function Slots() {
           <p className="text-xs font-black mb-3 text-center tracking-widest" style={{ color: ts.textSub }}>{t.payoutTable}</p>
           <div className="flex flex-col gap-1.5">
             {[
-              { label: "7️⃣7️⃣7️⃣", mult: "x10", color: "#fbbf24", pct: "2%" },
-              { label: `3x ${t.threeMatch}`, mult: "x3", color: "#4ade80", pct: "15%" },
-              { label: `2x ${t.twoSame}`, mult: "x1.5", color: isLight ? "#6366f1" : "#a5b4fc", pct: "45%" },
-              { label: "Boshqa", mult: "❌", color: "#f87171", pct: "38%" },
+              { label: "7️⃣7️⃣7️⃣  JACKPOT", mult: "x10", color: "#fbbf24" },
+              { label: `3x bir xil meva`, mult: "x3", color: "#4ade80" },
+              { label: `2x bir xil`, mult: "x1.5", color: isLight ? "#6366f1" : "#a5b4fc" },
+              { label: "Boshqa kombinatsiya", mult: "❌", color: "#f87171" },
             ].map(row => (
               <div key={row.label} className="flex items-center justify-between px-3 py-2 rounded-xl"
                 style={{ background: ts.input, border: `1px solid ${ts.inputBorder}` }}>
                 <span className="text-sm" style={{ color: ts.text }}>{row.label}</span>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs" style={{ color: ts.textSub }}>{row.pct}</span>
-                  <span className="font-black text-sm" style={{ color: row.color }}>{row.mult}</span>
-                </div>
+                <span className="font-black text-sm" style={{ color: row.color }}>{row.mult}</span>
               </div>
             ))}
           </div>
