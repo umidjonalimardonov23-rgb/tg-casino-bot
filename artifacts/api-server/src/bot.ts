@@ -121,17 +121,24 @@ const userMenuMsgId = new Map<number, number>();
 
 function mainMenuKeyboard(isAdmin: boolean): any[][] {
   const kb: any[][] = [
-    [{ text: "🎮 O'YINNI BOSHLASH", web_app: { url: APP_URL } }],
-    [{ text: "💰 Balansim", callback_data: "balance" }, { text: "📖 Qoidalar", callback_data: "howto" }],
-    [{ text: "➕ Hisob To'ldirish", callback_data: "deposit_menu" }, { text: "💸 Pul Yechish", callback_data: "withdraw_menu" }],
-    [{ text: "👥 Referal", callback_data: "referral_menu" }, { text: "❓ Yordam", callback_data: "help_menu" }],
+    [{ text: "🎰  O'YINNI BOSHLASH  🎰", web_app: { url: APP_URL } }],
+    [{ text: "💰 Balansim", callback_data: "balance" }, { text: "📋 Qoidalar", callback_data: "howto" }],
+    [{ text: "💳 Hisob To'ldirish", callback_data: "deposit_menu" }, { text: "💸 Pul Yechish", callback_data: "withdraw_menu" }],
+    [{ text: "🤝 Referal", callback_data: "referral_menu" }, { text: "🆘 Yordam", callback_data: "help_menu" }],
   ];
-  if (isAdmin) kb.push([{ text: "🔧 ADMIN PANEL", callback_data: "admin_panel" }]);
+  if (isAdmin) kb.push([{ text: "⚙️  ADMIN PANEL  ⚙️", callback_data: "admin_panel" }]);
   return kb;
 }
 
 function mainMenuText(name: string, balance: number): string {
-  return `🎮 <b>Salom, ${name}!</b>\n\n💰 Balansingiz: <b>${fmt(balance)} UZS</b>\n\n👇 O'yinni boshlash uchun tugmani bosing:`;
+  return (
+    `🎰 <b>1X GAME CASINO</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `👤 <b>${name}</b>\n` +
+    `💵 Balans: <b>${fmt(balance)} UZS</b>\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `🎮 O'yin boshlash uchun tugmani bosing 👇`
+  );
 }
 
 async function saveMenuMsgId(telegramId: string, msgId: number, chatId: number) {
