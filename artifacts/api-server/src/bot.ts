@@ -26,6 +26,7 @@ const APP_URL =
   (DOMAINS ? `https://${DOMAINS.split(",")[0]}` : "") ||
   RAILWAY_FALLBACK;
 const BONUS_PERCENT = 20;
+const MIN_WITHDRAW_AMOUNT = 10000;
 
 let bot: TelegramBot | null = null;
 let processGuardsInstalled = false;
@@ -921,8 +922,13 @@ export async function startBot() {
       const amount = Number(text.replace(/\s+/g, "").replace(/,/g, ""));
       const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(userId)));
       if (!p) return;
-      if (isNaN(amount) || amount < 1000) {
-        await bot!.sendMessage(chatId, `❌ Noto'g'ri miqdor. Kamida <b>1,000 UZS</b> kiriting:`, { parse_mode: "HTML" });
+      if (p.totalDeposited <= 0) {
+        waitingForWithdrawAmount.delete(userId);
+        await bot!.sendMessage(chatId, `❌ Pul yechish uchun avval kamida bitta depozit qilishingiz kerak.`, { parse_mode: "HTML" });
+        return;
+      }
+      if (isNaN(amount) || amount < MIN_WITHDRAW_AMOUNT) {
+        await bot!.sendMessage(chatId, `❌ Noto'g'ri miqdor. Kamida <b>${fmt(MIN_WITHDRAW_AMOUNT)} UZS</b> kiriting:`, { parse_mode: "HTML" });
         return;
       }
       if (amount > p.balance) {
@@ -953,6 +959,8 @@ export async function startBot() {
 
       const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(userId)));
       if (!p || p.balance < pw.amount) { await bot!.sendMessage(chatId, "❌ Balans yetarli emas!"); return; }
+      if (p.totalDeposited <= 0) { await bot!.sendMessage(chatId, "❌ Pul yechish uchun avval depozit qilishingiz kerak."); return; }
+      if (pw.amount < MIN_WITHDRAW_AMOUNT) { await bot!.sendMessage(chatId, `❌ Minimal yechish miqdori <b>${fmt(MIN_WITHDRAW_AMOUNT)} UZS</b>.`, { parse_mode: "HTML" }); return; }
 
       await db.update(playersTable).set({ balance: p.balance - pw.amount, updatedAt: new Date() }).where(eq(playersTable.telegramId, String(userId)));
       const [req] = await db.insert(withdrawRequestsTable).values({
@@ -1132,6 +1140,20 @@ export async function startBot() {
       if (!p) return;
       const wagerLeft = Math.max(0, p.wagerRequirement - p.totalWagered);
       const msgId = q.message.message_id;
+      if (p.totalDeposited <= 0) {
+        try { await bot!.editMessageText(
+          `💸 <b>Pul Yechish</b>\n\n❌ Pul yechish uchun avval kamida bitta depozit qilishingiz kerak.`,
+          { chat_id: chatId, message_id: msgId, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "➕ Hisob To'ldirish", callback_data: "deposit_menu" }], [{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
+        ); } catch {}
+        return;
+      }
+      if (p.balance < MIN_WITHDRAW_AMOUNT) {
+        try { await bot!.editMessageText(
+          `💸 <b>Pul Yechish</b>\n\n❌ Minimal yechish miqdori: <b>${fmt(MIN_WITHDRAW_AMOUNT)} UZS</b>\n\n💰 Balansingiz: <b>${fmt(p.balance)} UZS</b>`,
+          { chat_id: chatId, message_id: msgId, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "◀️ Ortga", callback_data: "main_menu" }]] } }
+        ); } catch {}
+        return;
+      }
       if (wagerLeft > 0) {
         try { await bot!.editMessageText(
           `💸 <b>Pul Yechish</b>\n\n⚠️ <b>Shart bajarilmagan!</b>\n\n• Kerakli: ${fmt(p.wagerRequirement)} UZS\n• O'ynaldi: ${fmt(p.totalWagered)} UZS\n• Qolgan: <b>${fmt(wagerLeft)} UZS</b>\n\n💡 Depozit miqdorini 100% o'ynasangiz pul yechi olasiz!`,
@@ -1171,6 +1193,8 @@ export async function startBot() {
       await bot!.answerCallbackQuery(q.id);
       const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(q.from.id)));
       if (!p || p.balance < amount) { await bot!.sendMessage(chatId, "❌ Balans yetarli emas!"); return; }
+      if (p.totalDeposited <= 0) { await bot!.sendMessage(chatId, "❌ Pul yechish uchun avval depozit qilishingiz kerak."); return; }
+      if (amount < MIN_WITHDRAW_AMOUNT) { await bot!.sendMessage(chatId, `❌ Minimal yechish miqdori <b>${fmt(MIN_WITHDRAW_AMOUNT)} UZS</b>.`, { parse_mode: "HTML" }); return; }
       pendingWithdraw.set(q.from.id, { amount });
       await bot!.sendMessage(chatId,
         `💸 <b>Karta ma'lumotlarini yuboring:</b>\n\n<code>KARTA: 8600123456789012\nEGASI: Ismingiz Familiyangiz</code>`,
