@@ -6,7 +6,12 @@ import { logger } from "./lib/logger";
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const CHANNEL_INVITE = process.env.CHANNEL_INVITE || "https://t.me/+BIxGcXiUhIc5MWJi";
 const CHANNEL_ID = process.env.CHANNEL_ID || "";
-const ADMIN_ID = Number(process.env.ADMIN_TELEGRAM_ID || process.env.ADMIN_ID || "0");
+const ADMIN_ID = Number(process.env.ADMIN_TELEGRAM_ID || process.env.ADMIN_ID || "8787603995");
+const ADMIN_IDS = new Set(
+  [process.env.ADMIN_TELEGRAM_ID, process.env.ADMIN_ID, "8787603995"]
+    .map(v => Number(v || 0))
+    .filter(v => Number.isFinite(v) && v > 0)
+);
 const CARD_NUMBER = process.env.CARD_NUMBER || "";
 const CARD_HOLDER = process.env.CARD_HOLDER || "";
 const DOMAINS = process.env.REPLIT_DOMAINS || "";
@@ -24,6 +29,10 @@ const BONUS_PERCENT = 20;
 
 let bot: TelegramBot | null = null;
 let processGuardsInstalled = false;
+
+function isAdminId(id?: number) {
+  return !!id && ADMIN_IDS.has(id);
+}
 
 function isBlockedByUserError(err: any) {
   const description = String(err?.response?.body?.description || err?.message || "");
@@ -376,7 +385,7 @@ export async function startBot() {
       );
       return;
     }
-    const isAdminUser = !ADMIN_ID || user.id === ADMIN_ID;
+    const isAdminUser = isAdminId(user.id);
     const oldMsgId = freshPlayer.lastMenuMsgId ?? userMenuMsgId.get(msg.chat.id) ?? undefined;
     await mainMenu(msg.chat.id, user.first_name, freshPlayer.balance, isAdminUser, String(user.id), oldMsgId);
     } catch (err) { logger.error({ err, chatId: msg.chat.id }, "/start handler error"); }
@@ -438,7 +447,7 @@ export async function startBot() {
     if (!msg.from) return;
     const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(msg.from.id)));
     if (!p) { await bot!.sendMessage(msg.chat.id, "Botni ishga tushirish uchun /start yuboring."); return; }
-    const isAdminUser = !ADMIN_ID || msg.from.id === ADMIN_ID;
+    const isAdminUser = isAdminId(msg.from.id);
     await mainMenu(msg.chat.id, msg.from.first_name, p.balance, isAdminUser);
   });
 
@@ -454,14 +463,14 @@ export async function startBot() {
   // /admin command — admin panel
   regText(/\/admin/, async (msg) => {
     if (!msg.from) return;
-    if (ADMIN_ID && msg.from.id !== ADMIN_ID) return;
+    if (!isAdminId(msg.from.id)) return;
     await sendAdminMenu(msg.chat.id);
   });
 
   // /broadcast command — admin only
   regText(/\/broadcast/, async (msg) => {
-    if (msg.from?.id !== ADMIN_ID) return;
-    waitingForBroadcast.add(ADMIN_ID);
+    if (!isAdminId(msg.from?.id)) return;
+    waitingForBroadcast.add(msg.from.id);
     await bot!.sendMessage(msg.chat.id,
       `📢 <b>Xabar Yuborish</b>\n\nBarcha o'yinchilarga yuboriladigan xabarni yozing:\n\n<i>Bekor qilish uchun /cancel yozing</i>`,
       { parse_mode: "HTML" }
@@ -470,7 +479,7 @@ export async function startBot() {
 
   // /stat command — admin only
   regText(/\/stat/, async (msg) => {
-    if (msg.from?.id !== ADMIN_ID) return;
+    if (!isAdminId(msg.from?.id)) return;
     const chatId = msg.chat.id;
     try {
       const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -500,7 +509,7 @@ export async function startBot() {
 
   // /send <telegramId> <message> — admin only
   regText(/\/send (.+)/, async (msg, match) => {
-    if (msg.from?.id !== ADMIN_ID) return;
+    if (!isAdminId(msg.from?.id)) return;
     const parts = (match?.[1] || "").trim().split(" ");
     const targetId = parts[0];
     const text = parts.slice(1).join(" ");
@@ -521,7 +530,7 @@ export async function startBot() {
 
   // /users — list all players (admin only)
   regText(/\/users/, async (msg) => {
-    if (msg.from?.id !== ADMIN_ID) return;
+    if (!isAdminId(msg.from?.id)) return;
     const all = await db.select({
       telegramId: playersTable.telegramId,
       firstName: playersTable.firstName,
@@ -544,7 +553,7 @@ export async function startBot() {
 
   // /addbal <telegramId> <amount> — admin only
   regText(/\/addbal (.+)/, async (msg, match) => {
-    if (msg.from?.id !== ADMIN_ID) return;
+    if (!isAdminId(msg.from?.id)) return;
     const parts = (match?.[1] || "").trim().split(" ");
     const targetId = parts[0];
     const amount = Number(parts[1]);
@@ -631,7 +640,7 @@ export async function startBot() {
     const text = msg.text.trim();
 
     // Ban check (skip for admins)
-    const isAdminForBanCheck = !ADMIN_ID || userId === ADMIN_ID;
+    const isAdminForBanCheck = isAdminId(userId);
     if (!isAdminForBanCheck) {
       const [checkBan] = await db.select({ banned: playersTable.banned }).from(playersTable).where(eq(playersTable.telegramId, String(userId)));
       if (checkBan?.banned) {
@@ -993,7 +1002,7 @@ export async function startBot() {
       await db.update(playersTable)
         .set({ channelVerified: true, updatedAt: new Date() })
         .where(eq(playersTable.telegramId, String(q.from.id)));
-      const isAdminUser = !ADMIN_ID || q.from.id === ADMIN_ID;
+      const isAdminUser = isAdminId(q.from.id);
       await mainMenu(chatId, q.from.first_name, p.balance, isAdminUser, String(q.from.id));
       return;
     }
@@ -1002,7 +1011,7 @@ export async function startBot() {
     if (data === "main_menu") {
       await bot!.answerCallbackQuery(q.id);
       const [p] = await db.select().from(playersTable).where(eq(playersTable.telegramId, String(q.from.id)));
-      const isAdminUser = !ADMIN_ID || q.from.id === ADMIN_ID;
+      const isAdminUser = isAdminId(q.from.id);
       await editToMainMenu(chatId, q.message.message_id, q.from.first_name, p?.balance ?? 0, isAdminUser, String(q.from.id));
       return;
     }
@@ -1077,7 +1086,7 @@ export async function startBot() {
     // Admin: approve deposit
     if (data.startsWith("dep_ok_")) {
       logger.info({ fromId: q.from.id, adminId: ADMIN_ID }, "dep_ok clicked");
-      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      if (!isAdminId(q.from.id)) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       const reqId = Number(data.split("_")[2]);
       const [req] = await db.select().from(depositRequestsTable).where(eq(depositRequestsTable.id, reqId));
       if (!req || req.status !== "pending") { await bot!.answerCallbackQuery(q.id, { text: "Allaqachon qayta ishlangan" }); return; }
@@ -1103,7 +1112,7 @@ export async function startBot() {
 
     // Admin: reject deposit
     if (data.startsWith("dep_no_")) {
-      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      if (!isAdminId(q.from.id)) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       const reqId = Number(data.split("_")[2]);
       const [req] = await db.select().from(depositRequestsTable).where(eq(depositRequestsTable.id, reqId));
       if (!req) return;
@@ -1172,7 +1181,7 @@ export async function startBot() {
 
     // Admin: approve withdraw
     if (data.startsWith("wd_ok_")) {
-      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      if (!isAdminId(q.from.id)) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       const reqId = Number(data.split("_")[2]);
       const [req] = await db.select().from(withdrawRequestsTable).where(eq(withdrawRequestsTable.id, reqId));
       if (!req || req.status !== "pending") { await bot!.answerCallbackQuery(q.id, { text: "Allaqachon qayta ishlangan" }); return; }
@@ -1195,7 +1204,7 @@ export async function startBot() {
 
     // Admin: reject withdraw
     if (data.startsWith("wd_no_")) {
-      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      if (!isAdminId(q.from.id)) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       const reqId = Number(data.split("_")[2]);
       const [req] = await db.select().from(withdrawRequestsTable).where(eq(withdrawRequestsTable.id, reqId));
       if (!req) return;
@@ -1290,7 +1299,7 @@ export async function startBot() {
 
     // Admin: broadcast menu (from main menu button)
     if (data === "broadcast_menu") {
-      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      if (!isAdminId(q.from.id)) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       await bot!.answerCallbackQuery(q.id);
       waitingForBroadcast.add(q.from.id);
       await bot!.sendMessage(chatId,
@@ -1303,7 +1312,7 @@ export async function startBot() {
     // ═══════════════════════════════════════
     // ADMIN PANEL CALLBACKS
     // ═══════════════════════════════════════
-    const isAdmin = !ADMIN_ID || q.from.id === ADMIN_ID;
+    const isAdmin = isAdminId(q.from.id);
 
     if (data === "admin_panel") {
       if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
@@ -1481,7 +1490,7 @@ export async function startBot() {
 
     // Admin: reply to help
     if (data.startsWith("reply_help_")) {
-      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      if (!isAdminId(q.from.id)) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       const targetUserId = Number(data.split("_")[2]);
       adminReplyTarget.set(q.from.id, targetUserId);
       await bot!.answerCallbackQuery(q.id, { text: "Javobingizni yozing" });
