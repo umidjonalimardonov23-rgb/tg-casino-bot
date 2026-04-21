@@ -591,6 +591,26 @@ export async function startBot() {
   const photoHandler = async (msg: any) => {
     const userId = msg.from?.id; if (!userId) return;
     const fileId = msg.photo![msg.photo!.length - 1].file_id;
+    const chatId = msg.chat.id;
+
+    if (waitingForSendMsg.has(userId)) {
+      const targetId = waitingForSendMsg.get(userId)!;
+      waitingForSendMsg.delete(userId);
+      const caption = msg.caption?.trim();
+      try {
+        await bot!.sendPhoto(Number(targetId), fileId, {
+          caption: caption ? `📩 <b>Admin xabari:</b>\n\n${caption}` : `📩 <b>Admin xabari</b>`,
+          parse_mode: "HTML",
+        });
+        await bot!.sendMessage(chatId, `✅ <b>Rasm yuborildi!</b>\n🆔 <code>${targetId}</code>`, {
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] }
+        });
+      } catch {
+        await bot!.sendMessage(chatId, `❌ Rasm yuborib bo'lmadi. ID noto'g'ri yoki foydalanuvchi botni bloklagan.`);
+      }
+      return;
+    }
 
     // First try in-memory map; fallback to DB lookup (handles server restarts)
     let reqId = waitingForCheck.get(userId);
