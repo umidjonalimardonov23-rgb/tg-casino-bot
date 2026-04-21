@@ -4,6 +4,8 @@ import { ArrowLeft, CheckCircle, AlertTriangle, Wallet } from "lucide-react";
 import { usePlayer } from "@/lib/player-context";
 import { withdraw } from "@/lib/api";
 
+const MIN_WITHDRAW_AMOUNT = 10000;
+
 export default function Withdraw() {
   const [, nav] = useLocation();
   const { player, refresh } = usePlayer();
@@ -15,14 +17,16 @@ export default function Withdraw() {
   const [err, setErr] = useState("");
 
   const wagerLeft = player ? Math.max(0, player.wagerRequirement - player.totalWagered) : 0;
-  const canWithdraw = wagerLeft === 0;
+  const hasDeposited = (player?.totalDeposited ?? 0) > 0;
+  const canWithdraw = hasDeposited && wagerLeft === 0;
   const amount = customAmount ? Number(customAmount) : 0;
   const balance = player?.balance ?? 0;
   const wagerProgress = player?.wagerRequirement
     ? Math.min(100, (player.totalWagered / player.wagerRequirement) * 100) : 0;
 
   const submit = async () => {
-    if (!amount || amount < 1000) { setErr("Minimal miqdor 1 000 UZS"); return; }
+    if (!hasDeposited) { setErr("Pul yechish uchun avval depozit qilishingiz kerak"); return; }
+    if (!amount || amount < MIN_WITHDRAW_AMOUNT) { setErr("Minimal miqdor 10 000 UZS"); return; }
     if (amount > balance) { setErr("Balans yetarli emas!"); return; }
     if (!card || card.length < 4) { setErr("Karta raqamini kiriting"); return; }
     if (!holder) { setErr("Karta egasini kiriting"); return; }
@@ -81,7 +85,25 @@ export default function Withdraw() {
           </p>
         </div>
 
-        {!canWithdraw ? (
+        {!hasDeposited ? (
+          <>
+            <div className="rounded-2xl p-4 mb-4"
+              style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.25)" }}>
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "#f87171" }} />
+                <p className="text-sm font-bold" style={{ color: "#f87171" }}>Depozit qilinmagan!</p>
+              </div>
+              <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
+                Pul yechish uchun avval kamida bitta depozit qilishingiz kerak.
+              </p>
+            </div>
+            <button onClick={() => nav("/deposit")}
+              className="w-full py-4 rounded-2xl font-black text-base mb-6 active:scale-95"
+              style={{ background: "linear-gradient(135deg, #10b981, #059669)", boxShadow: "0 8px 24px rgba(16,185,129,0.3)", color: "white" }}>
+              ➕ Hisob To'ldirish
+            </button>
+          </>
+        ) : !canWithdraw ? (
           <>
             <div className="rounded-2xl p-4 mb-4"
               style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.25)" }}>
@@ -128,7 +150,7 @@ export default function Withdraw() {
             </div>
 
             <p className="text-xs font-bold mb-2 tracking-widest" style={{ color: "rgba(255,255,255,0.3)" }}>MIQDOR (UZS)</p>
-            <input type="number" placeholder={`Maks: ${balance.toLocaleString()} UZS`} value={customAmount}
+            <input type="number" placeholder={`Min: ${MIN_WITHDRAW_AMOUNT.toLocaleString()} UZS`} value={customAmount}
               onChange={(e) => setCustomAmount(e.target.value)}
               className="w-full rounded-xl px-4 py-3 font-black text-lg focus:outline-none mb-2"
               style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${amount > balance && amount > 0 ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.1)"}`, color: "#fbbf24" }} />
@@ -163,7 +185,7 @@ export default function Withdraw() {
             )}
 
             <button onClick={submit}
-              disabled={!amount || amount < 1000 || amount > balance || !card || !holder || loading}
+              disabled={!amount || amount < MIN_WITHDRAW_AMOUNT || amount > balance || !card || !holder || loading}
               className="w-full py-4 rounded-2xl font-black text-base mb-6 active:scale-95 transition-all disabled:opacity-40"
               style={{ background: "linear-gradient(135deg, #7c3aed, #3b82f6)", boxShadow: "0 8px 24px rgba(124,58,237,0.4)", color: "white" }}>
               {loading ? "Yuborilmoqda..." : "💸 So'rov Yuborish"}
