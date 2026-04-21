@@ -15,6 +15,7 @@ import {
 import { notifyAdminWithdraw } from "../bot";
 
 const router: IRouter = Router();
+const MIN_WITHDRAW_AMOUNT = 10000;
 
 router.post("/players/sync", async (req, res): Promise<void> => {
   const parsed = SyncPlayerBody.safeParse(req.body);
@@ -115,6 +116,22 @@ router.post("/players/:telegramId/withdraw", async (req, res): Promise<void> => 
 
   const [player] = await db.select().from(playersTable).where(eq(playersTable.telegramId, params.data.telegramId));
   if (!player) { res.status(404).json({ error: "Player not found" }); return; }
+
+  if (player.totalDeposited <= 0) {
+    res.status(400).json({ error: "Pul yechish uchun avval depozit qilishingiz kerak" });
+    return;
+  }
+
+  if (amount < MIN_WITHDRAW_AMOUNT) {
+    res.status(400).json({ error: `Minimal yechish miqdori ${MIN_WITHDRAW_AMOUNT.toLocaleString("uz-UZ")} UZS` });
+    return;
+  }
+
+  const wagerLeft = Math.max(0, player.wagerRequirement - player.totalWagered);
+  if (wagerLeft > 0) {
+    res.status(400).json({ error: `Pul yechish uchun yana ${wagerLeft.toLocaleString("uz-UZ")} UZS o'ynashingiz kerak` });
+    return;
+  }
 
   if (player.balance < amount) {
     res.status(400).json({ error: "Balans yetarli emas" });
