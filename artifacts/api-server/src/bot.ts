@@ -6,7 +6,7 @@ import { logger } from "./lib/logger";
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const CHANNEL_INVITE = process.env.CHANNEL_INVITE || "https://t.me/+BIxGcXiUhIc5MWJi";
 const CHANNEL_ID = process.env.CHANNEL_ID || "";
-const ADMIN_ID = Number(process.env.ADMIN_TELEGRAM_ID || "0");
+const ADMIN_ID = Number(process.env.ADMIN_TELEGRAM_ID || process.env.ADMIN_ID || "0");
 const CARD_NUMBER = process.env.CARD_NUMBER || "";
 const CARD_HOLDER = process.env.CARD_HOLDER || "";
 const DOMAINS = process.env.REPLIT_DOMAINS || "";
@@ -23,6 +23,24 @@ const APP_URL =
 const BONUS_PERCENT = 20;
 
 let bot: TelegramBot | null = null;
+let processGuardsInstalled = false;
+
+function isBlockedByUserError(err: any) {
+  const description = String(err?.response?.body?.description || err?.message || "");
+  return err?.code === 403 || description.includes("bot was blocked by the user");
+}
+
+function installProcessGuards() {
+  if (processGuardsInstalled) return;
+  processGuardsInstalled = true;
+  process.on("unhandledRejection", (err) => {
+    if (isBlockedByUserError(err)) {
+      logger.warn({ err }, "Telegram user blocked bot; ignored");
+      return;
+    }
+    logger.error({ err }, "Unhandled promise rejection");
+  });
+}
 
 function patchBotRequest(b: TelegramBot) {
   (b as any)._request = async function(path: string, options: any = {}) {
@@ -273,6 +291,7 @@ export async function handleWebhookUpdate(body: any) {
 
 export async function startBot() {
   if (!TOKEN) { logger.warn("No BOT TOKEN"); return; }
+  installProcessGuards();
 
   bot = new TelegramBot(TOKEN, { polling: false });
   patchBotRequest(bot);
@@ -1073,10 +1092,12 @@ export async function startBot() {
       }).where(eq(playersTable.id, req.playerId));
       await bot!.answerCallbackQuery(q.id, { text: "✅ Tasdiqlandi!" });
       try { await bot!.editMessageCaption(`✅ TASDIQLANDI — ${fmt(req.amount)} UZS + ${fmt(req.bonusAmount)} bonus`, { chat_id: chatId, message_id: q.message.message_id }); } catch {}
-      await bot!.sendMessage(Number(req.telegramId),
-        `🎉 <b>Depozitingiz tasdiqlandi!</b>\n\n💵 Miqdor: <b>${fmt(req.amount)} UZS</b>\n🎁 Bonus: <b>+${fmt(req.bonusAmount)} UZS</b>\n💰 Jami: <b>${fmt(total)} UZS</b>\n\nO'yiningiz omadli bo'lsin! 🎮`,
-        { parse_mode: "HTML" }
-      );
+      try {
+        await bot!.sendMessage(Number(req.telegramId),
+          `🎉 <b>Depozitingiz tasdiqlandi!</b>\n\n💵 Miqdor: <b>${fmt(req.amount)} UZS</b>\n🎁 Bonus: <b>+${fmt(req.bonusAmount)} UZS</b>\n💰 Jami: <b>${fmt(total)} UZS</b>\n\nO'yiningiz omadli bo'lsin! 🎮`,
+          { parse_mode: "HTML" }
+        );
+      } catch (err) { logger.warn({ err, telegramId: req.telegramId }, "deposit approved notification failed"); }
       return;
     }
 
@@ -1089,7 +1110,9 @@ export async function startBot() {
       await db.update(depositRequestsTable).set({ status: "rejected" }).where(eq(depositRequestsTable.id, reqId));
       await bot!.answerCallbackQuery(q.id, { text: "❌ Rad etildi" });
       try { await bot!.editMessageCaption(`❌ RAD ETILDI`, { chat_id: chatId, message_id: q.message.message_id }); } catch {}
-      await bot!.sendMessage(Number(req.telegramId), `❌ <b>Depozitingiz rad etildi.</b>\nMuammo bo'lsa admin bilan bog'laning.`, { parse_mode: "HTML" });
+      try {
+        await bot!.sendMessage(Number(req.telegramId), `❌ <b>Depozitingiz rad etildi.</b>\nMuammo bo'lsa admin bilan bog'laning.`, { parse_mode: "HTML" });
+      } catch (err) { logger.warn({ err, telegramId: req.telegramId }, "deposit rejected notification failed"); }
       return;
     }
 
@@ -1149,7 +1172,7 @@ export async function startBot() {
 
     // Admin: approve withdraw
     if (data.startsWith("wd_ok_")) {
-      if (q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       const reqId = Number(data.split("_")[2]);
       const [req] = await db.select().from(withdrawRequestsTable).where(eq(withdrawRequestsTable.id, reqId));
       if (!req || req.status !== "pending") { await bot!.answerCallbackQuery(q.id, { text: "Allaqachon qayta ishlangan" }); return; }
@@ -1161,16 +1184,18 @@ export async function startBot() {
       }
       await bot!.answerCallbackQuery(q.id, { text: "✅ Tasdiqlandi!" });
       try { await bot!.editMessageText(`✅ TASDIQLANDI — ${fmt(req.amount)} UZS`, { chat_id: chatId, message_id: q.message.message_id }); } catch {}
-      await bot!.sendMessage(Number(req.telegramId),
-        `✅ <b>Pul yechish tasdiqlandi!</b>\n\n💵 <b>${fmt(req.amount)} UZS</b> kartangizga o'tkazildi.\n🏦 Karta: <code>${req.cardNumber}</code>`,
-        { parse_mode: "HTML" }
-      );
+      try {
+        await bot!.sendMessage(Number(req.telegramId),
+          `✅ <b>Pul yechish tasdiqlandi!</b>\n\n💵 <b>${fmt(req.amount)} UZS</b> kartangizga o'tkazildi.\n🏦 Karta: <code>${req.cardNumber}</code>`,
+          { parse_mode: "HTML" }
+        );
+      } catch (err) { logger.warn({ err, telegramId: req.telegramId }, "withdraw approved notification failed"); }
       return;
     }
 
     // Admin: reject withdraw
     if (data.startsWith("wd_no_")) {
-      if (q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      if (ADMIN_ID && q.from.id !== ADMIN_ID) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
       const reqId = Number(data.split("_")[2]);
       const [req] = await db.select().from(withdrawRequestsTable).where(eq(withdrawRequestsTable.id, reqId));
       if (!req) return;
@@ -1179,7 +1204,9 @@ export async function startBot() {
       await db.update(playersTable).set({ balance: p.balance + req.amount, updatedAt: new Date() }).where(eq(playersTable.id, req.playerId));
       await bot!.answerCallbackQuery(q.id, { text: "❌ Rad etildi" });
       try { await bot!.editMessageText(`❌ RAD ETILDI`, { chat_id: chatId, message_id: q.message.message_id }); } catch {}
-      await bot!.sendMessage(Number(req.telegramId), `❌ <b>Pul yechish rad etildi.</b>\nBalansingiz qaytarildi.`, { parse_mode: "HTML" });
+      try {
+        await bot!.sendMessage(Number(req.telegramId), `❌ <b>Pul yechish rad etildi.</b>\nBalansingiz qaytarildi.`, { parse_mode: "HTML" });
+      } catch (err) { logger.warn({ err, telegramId: req.telegramId }, "withdraw rejected notification failed"); }
       return;
     }
 
