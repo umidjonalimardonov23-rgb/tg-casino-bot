@@ -426,6 +426,7 @@ export async function startBot() {
               ],
               [
                 { text: "💸 Kutilayotgan yechimlar", callback_data: "admin_withdrawals" },
+                { text: "📋 Barcha yechimlar", callback_data: "admin_all_withdrawals" },
               ],
               [
                 { text: "✅ Tasdiqlangan depozitlar", callback_data: "admin_approved_deposits" },
@@ -1552,7 +1553,7 @@ export async function startBot() {
         FROM withdraw_requests w
         LEFT JOIN players p ON p.id = w.player_id
         WHERE w.status = 'approved'
-        ORDER BY w.created_at DESC
+        ORDER BY w.id DESC
         LIMIT 30
       `);
       const rows = (approvedRes.rows ?? []) as any[];
@@ -1572,6 +1573,54 @@ export async function startBot() {
         return `${i + 1}. ${name}\n🆔 <code>${wd.telegram_id}</code> | 🧾 #${wd.id}\n💵 <b>${fmt(Number(wd.amount))} UZS</b>\n💳 <code>${wd.card_number}</code>\n👤 ${wd.card_holder}\n📅 ${date}`;
       }).join("\n\n");
       const chunks = (header + lines).match(/[\s\S]{1,3800}/g) || [header];
+      for (const chunk of chunks) {
+        await bot!.sendMessage(chatId, chunk, { parse_mode: "HTML" });
+      }
+      await bot!.sendMessage(chatId, "🔙", { reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] } });
+      return;
+    }
+
+    if (data === "admin_all_withdrawals") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      const summaryRes = await db.execute(sql`
+        SELECT
+          status,
+          count(*)::int as cnt,
+          coalesce(sum(amount), 0)::int as total
+        FROM withdraw_requests
+        GROUP BY status
+        ORDER BY status
+      `);
+      const rowsRes = await db.execute(sql`
+        SELECT
+          w.id,
+          w.telegram_id,
+          w.amount,
+          w.card_number,
+          w.card_holder,
+          w.status,
+          w.created_at,
+          p.username,
+          p.first_name
+        FROM withdraw_requests w
+        LEFT JOIN players p ON p.id = w.player_id
+        ORDER BY w.id DESC
+        LIMIT 50
+      `);
+      const stats = ((summaryRes.rows ?? []) as any[]).map(s => {
+        const label = s.status === "approved" ? "✅ To'langan" : s.status === "pending" ? "⏳ Kutilayotgan" : s.status === "rejected" ? "❌ Rad etilgan" : s.status;
+        return `${label}: <b>${Number(s.cnt ?? 0)} ta</b> — ${fmt(Number(s.total ?? 0))} UZS`;
+      }).join("\n") || "Yechimlar yo'q";
+      const rows = (rowsRes.rows ?? []) as any[];
+      const lines = rows.length ? rows.map((wd, i) => {
+        const name = wd.username ? `@${wd.username}` : (wd.first_name ?? "—");
+        const date = wd.created_at ? new Date(wd.created_at).toLocaleString("uz-UZ") : "—";
+        const status = wd.status === "approved" ? "✅ to'langan" : wd.status === "pending" ? "⏳ kutilmoqda" : wd.status === "rejected" ? "❌ rad" : wd.status;
+        return `${i + 1}. ${name}\n🆔 <code>${wd.telegram_id}</code> | 🧾 #${wd.id} | ${status}\n💵 <b>${fmt(Number(wd.amount))} UZS</b>\n💳 <code>${wd.card_number}</code>\n👤 ${wd.card_holder}\n📅 ${date}`;
+      }).join("\n\n") : "Yechimlar yo'q";
+      const text = `📋 <b>BARCHA YECHIMLAR</b>\n\n${stats}\n\n📋 <b>Oxirgi 50 ta:</b>\n\n${lines}`;
+      const chunks = text.match(/[\s\S]{1,3800}/g) || [text];
       for (const chunk of chunks) {
         await bot!.sendMessage(chatId, chunk, { parse_mode: "HTML" });
       }
