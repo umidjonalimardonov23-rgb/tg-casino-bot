@@ -1,6 +1,6 @@
 import TelegramBot from "node-telegram-bot-api";
 import { eq, and, isNull, sql, desc } from "drizzle-orm";
-import { db, playersTable, depositRequestsTable, withdrawRequestsTable, promoCodesTable } from "@workspace/db";
+import { db, playersTable, transactionsTable, depositRequestsTable, withdrawRequestsTable, promoCodesTable } from "@workspace/db";
 import { logger } from "./lib/logger";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
@@ -1220,6 +1220,12 @@ export async function startBot() {
       if (playerW) {
         await db.update(playersTable).set({ totalWithdrawn: playerW.totalWithdrawn + req.amount, updatedAt: new Date() }).where(eq(playersTable.telegramId, req.telegramId));
       }
+      await db.insert(transactionsTable).values({
+        playerId: req.playerId,
+        type: "withdraw_approved",
+        amount: req.amount,
+        game: null,
+      });
       await bot!.answerCallbackQuery(q.id, { text: "✅ Tasdiqlandi!" });
       try { await bot!.editMessageText(`✅ TASDIQLANDI — ${fmt(req.amount)} UZS`, { chat_id: chatId, message_id: q.message.message_id }); } catch {}
       try {
@@ -1554,7 +1560,7 @@ export async function startBot() {
         LEFT JOIN players p ON p.id = w.player_id
         WHERE w.status = 'approved'
         ORDER BY w.id DESC
-        LIMIT 30
+        LIMIT 100
       `);
       const rows = (approvedRes.rows ?? []) as any[];
       if (!rows.length) {
@@ -1566,7 +1572,7 @@ export async function startBot() {
         `👥 Pul o'tkazilgan odamlar: <b>${Number(summary.users ?? 0)} ta</b>\n` +
         `🧾 To'langan so'rovlar: <b>${Number(summary.cnt ?? 0)} ta</b>\n` +
         `💸 Jami o'tkazilgan: <b>${fmt(Number(summary.total ?? 0))} UZS</b>\n\n` +
-        `📋 <b>Oxirgi 30 ta:</b>\n\n`;
+        `📋 <b>Oxirgi 100 ta:</b>\n\n`;
       const lines = rows.map((wd, i) => {
         const name = wd.username ? `@${wd.username}` : (wd.first_name ?? "—");
         const date = wd.created_at ? new Date(wd.created_at).toLocaleString("uz-UZ") : "—";
