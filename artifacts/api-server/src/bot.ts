@@ -428,6 +428,9 @@ export async function startBot() {
                 { text: "💸 Yechimlarni ko'r", callback_data: "admin_withdrawals" },
               ],
               [
+                { text: "✅ Tasdiqlangan depozitlar", callback_data: "admin_approved_deposits" },
+              ],
+              [
                 { text: "🚫 Ban / Unban", callback_data: "admin_ban" },
                 { text: "🎫 Promo Kodlar", callback_data: "admin_promo" },
               ],
@@ -1467,6 +1470,59 @@ export async function startBot() {
           }
         } catch {}
       }
+      return;
+    }
+
+    if (data === "admin_approved_deposits") {
+      if (!isAdmin) { await bot!.answerCallbackQuery(q.id, { text: "❌ Ruxsat yo'q" }); return; }
+      await bot!.answerCallbackQuery(q.id);
+      const summaryRes = await db.execute(sql`
+        SELECT
+          count(*)::int as cnt,
+          count(distinct telegram_id)::int as users,
+          coalesce(sum(amount), 0)::int as total,
+          coalesce(sum(bonus_amount), 0)::int as bonus
+        FROM deposit_requests
+        WHERE status = 'approved'
+      `);
+      const summary = (summaryRes.rows?.[0] as any) ?? {};
+      const approvedRes = await db.execute(sql`
+        SELECT
+          d.id,
+          d.telegram_id,
+          d.amount,
+          d.bonus_amount,
+          d.created_at,
+          p.username,
+          p.first_name
+        FROM deposit_requests d
+        LEFT JOIN players p ON p.id = d.player_id
+        WHERE d.status = 'approved'
+        ORDER BY d.created_at DESC
+        LIMIT 30
+      `);
+      const rows = (approvedRes.rows ?? []) as any[];
+      if (!rows.length) {
+        await bot!.sendMessage(chatId, `✅ <b>Tasdiqlangan depozitlar yo'q</b>`, { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] } });
+        return;
+      }
+      const header =
+        `✅ <b>TASDIQLANGAN DEPOZITLAR</b>\n\n` +
+        `👥 Pul tushgan odamlar: <b>${Number(summary.users ?? 0)} ta</b>\n` +
+        `🧾 Tasdiqlangan to'lovlar: <b>${Number(summary.cnt ?? 0)} ta</b>\n` +
+        `💰 Jami tushgan: <b>${fmt(Number(summary.total ?? 0))} UZS</b>\n` +
+        `🎁 Jami bonus: <b>${fmt(Number(summary.bonus ?? 0))} UZS</b>\n\n` +
+        `📋 <b>Oxirgi 30 ta:</b>\n\n`;
+      const lines = rows.map((dep, i) => {
+        const name = dep.username ? `@${dep.username}` : (dep.first_name ?? "—");
+        const date = dep.created_at ? new Date(dep.created_at).toLocaleString("uz-UZ") : "—";
+        return `${i + 1}. ${name}\n🆔 <code>${dep.telegram_id}</code> | 🧾 #${dep.id}\n💵 <b>${fmt(Number(dep.amount))} UZS</b> + 🎁 ${fmt(Number(dep.bonus_amount))} UZS\n📅 ${date}`;
+      }).join("\n\n");
+      const chunks = (header + lines).match(/[\s\S]{1,3800}/g) || [header];
+      for (const chunk of chunks) {
+        await bot!.sendMessage(chatId, chunk, { parse_mode: "HTML" });
+      }
+      await bot!.sendMessage(chatId, "🔙", { reply_markup: { inline_keyboard: [[{ text: "🔙 Admin panel", callback_data: "admin_panel" }]] } });
       return;
     }
 
