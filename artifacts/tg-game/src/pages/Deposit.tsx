@@ -6,8 +6,8 @@ import { useTheme } from "@/lib/theme-context";
 import { createDepositRequest } from "@/lib/api";
 import GameHeader from "@/components/GameHeader";
 
-const CARD = "9860606758644557";
-const HOLDER = "A.UMIDJON";
+const CARD = "5614683518277611";
+const HOLDER = "Alimardonov Umidjon";
 const BONUS = 20;
 
 const PRESETS = [
