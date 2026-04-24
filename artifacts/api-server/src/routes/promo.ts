@@ -20,7 +20,11 @@ router.post("/promo/redeem", async (req, res): Promise<void> => {
     .where(and(eq(promoUsesTable.codeId, promo.id), eq(promoUsesTable.telegramId, String(telegramId))));
   if (alreadyUsed.length > 0) { res.json({ success: false, error: "Siz bu kodni allaqachon ishlatgansiz" }); return; }
 
-  await db.update(promoCodesTable).set({ usedCount: promo.usedCount + 1 }).where(eq(promoCodesTable.id, promo.id));
+  const newUsedCount = promo.usedCount + 1;
+  const reachedLimit = newUsedCount >= promo.maxUses;
+  await db.update(promoCodesTable)
+    .set({ usedCount: newUsedCount, ...(reachedLimit ? { active: false } : {}) })
+    .where(eq(promoCodesTable.id, promo.id));
   await db.insert(promoUsesTable).values({ codeId: promo.id, telegramId: String(telegramId) });
   const [updated] = await db.update(playersTable)
     .set({ balance: player.balance + promo.amount, updatedAt: new Date() })

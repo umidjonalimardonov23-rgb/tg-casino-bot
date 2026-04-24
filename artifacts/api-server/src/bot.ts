@@ -354,6 +354,8 @@ export async function startBot() {
   regText(/\/start(.*)/, async (msg, match) => {
     try {
     const user = msg.from; if (!user) return;
+    // Delete the user's "/start" command message so the chat stays clean
+    try { await bot!.deleteMessage(msg.chat.id, msg.message_id); } catch {}
     const isNew = !(await db.select().from(playersTable).where(eq(playersTable.telegramId, String(user.id)))).length;
     const player = await getOrCreatePlayer(user);
 
@@ -850,7 +852,31 @@ export async function startBot() {
       try {
         await db.insert(promoCodesTable).values({ code, amount, maxUses });
         await bot!.sendMessage(chatId,
-          `✅ <b>Promo Kod Yaratildi!</b>\n\n🎫 Kod: <code>${code}</code>\n💰 Miqdor: <b>${fmt(amount)} UZS</b>\n📊 Limit: <b>${maxUses}</b> marta`,
+          `✅ <b>Promo Kod Yaratildi!</b>\n\n🎫 Kod: <code>${code}</code>\n💰 Miqdor: <b>${fmt(amount)} UZS</b>\n📊 Limit: <b>${maxUses}</b> marta\n\n📢 Hamma foydalanuvchilarga yuborilmoqda...`,
+          { parse_mode: "HTML" }
+        );
+
+        // Broadcast the new promo code to ALL users
+        const allPlayers = await db.select({ telegramId: playersTable.telegramId }).from(playersTable);
+        const promoText =
+          `🎉 <b>YANGI PROMO KOD!</b>\n\n` +
+          `🎫 Kod: <code>${code}</code>\n` +
+          `💰 Sovrin: <b>${fmt(amount)} UZS</b>\n` +
+          `👥 Faqat dastlabki <b>${maxUses} ta</b> foydalanuvchiga!\n\n` +
+          `⚡️ Ulgurib qoling — kodni o'yin ichida "Promo" bo'limidan kiriting!`;
+        let sent = 0, failed = 0;
+        for (const pl of allPlayers) {
+          try {
+            await bot!.sendMessage(Number(pl.telegramId), promoText, { parse_mode: "HTML" });
+            sent++;
+          } catch {
+            failed++;
+          }
+          await new Promise(r => setTimeout(r, 35));
+        }
+
+        await bot!.sendMessage(chatId,
+          `✅ <b>Yuborish tugadi!</b>\n\n📤 Yuborildi: <b>${sent}</b>\n❌ Yuborilmadi: <b>${failed}</b>`,
           { parse_mode: "HTML", reply_markup: { inline_keyboard: [
             [{ text: "🎫 Promo Kodlar", callback_data: "admin_promo" }],
             [{ text: "🔙 Admin panel", callback_data: "admin_panel" }],
