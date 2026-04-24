@@ -43,9 +43,9 @@ export default function Aviator() {
   const autoBetRef = useRef(false);
   const savingRef = useRef(false);
   const phaseRef = useRef<Phase>("idle");
-  const loopRef = useRef<ReturnType<typeof setInterval>>();
-  const countdownRef = useRef<ReturnType<typeof setInterval>>();
-  const autoRef = useRef<ReturnType<typeof setTimeout>>();
+  const loopRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const autoRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const isLight = theme === "light";
 

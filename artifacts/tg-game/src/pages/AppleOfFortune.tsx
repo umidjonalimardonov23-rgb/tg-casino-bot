@@ -53,6 +53,7 @@ export default function AppleOfFortune() {
       return () => clearTimeout(t);
     } else {
       setShowResult(false);
+      return undefined;
     }
   }, [gameState]);
 
